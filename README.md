@@ -12,16 +12,16 @@ the code from the selector/DOM context you send.
 
 ```
 Desktop Chrome (extension)
-  └─ pick element + type instruction → list → [Submit]
-       └─ POST http://127.0.0.1:39517/annotations   (via ssh -R when remote)
+  └─ Alt+A → overlay + sidebar → pick element, type instruction, Act/Queue → [Submit]
+       └─ POST http://127.0.0.1:39517/annotations   (via ssh -L when remote)
 OpenCode host (plugin)
   └─ HTTP server on 127.0.0.1 → injects a turn into the active session
        └─ agent receives the instruction + element metadata and acts
 ```
 
 The plugin binds to `127.0.0.1` only. When OpenCode is on a remote host, an
-`ssh -R` reverse tunnel carries the extension's POST to it — no public port, and
-SSH provides the auth and encryption.
+`ssh -L` local forward carries the extension's POST from your desktop to it — no
+public port, and SSH provides the auth and encryption.
 
 ## Install
 
@@ -51,16 +51,19 @@ Until it is on the Chrome Web Store, load it unpacked:
 
 ### 3. Tunnel (when OpenCode is remote)
 
-On your desktop, forward the plugin port to the server (separate window):
+The extension (on your desktop) needs to reach the plugin server (on the host),
+so use a **local forward**. Run on your desktop, in a separate window:
 
 ```bash
-ssh -N -R 39517:127.0.0.1:39517 you@server
+ssh -N -L 39517:127.0.0.1:39517 you@host
 ```
 
-If you also drive the browser from the agent (desktop-drive), forward both:
+If you also drive the browser from the agent (desktop-drive on 9333), that is the
+opposite direction (host → desktop), so it uses a reverse forward. You can run
+both at once:
 
 ```bash
-ssh -N -R 9333:127.0.0.1:9333 -R 39517:127.0.0.1:39517 you@server
+ssh -N -L 39517:127.0.0.1:39517 -R 9333:127.0.0.1:9333 you@host
 ```
 
 If OpenCode runs on the same machine as your browser, no tunnel is needed — the
@@ -70,10 +73,15 @@ extension's **Settings** page.
 ## Use
 
 1. Send at least one message in OpenCode so the plugin knows the active session.
-2. Click the extension icon → **Select element**.
-3. Hover to highlight, click the element, type your instruction (Esc cancels).
-4. Repeat to queue more, then **Submit to agent**.
-5. The agent receives the annotations as a new turn and responds.
+2. Press **Alt+A** on any page to open the annotation overlay (or click the
+   toolbar icon). Press Alt+A again or Esc to close it.
+3. In the sidebar, click **Select element**, hover to highlight, and click the
+   element you want (works inside shadow DOM).
+4. Type an instruction in the card. Choose **Act now** (agent responds
+   immediately) or **Queue** (held for context until the next Act). Repeat for
+   more elements.
+5. Click **Submit to agent**. The sidebar footer shows the connection and active
+   session; a toast confirms how many were sent vs queued.
 
 ## Payload
 
@@ -81,18 +89,23 @@ The extension POSTs to `/annotations`:
 
 ```json
 {
-  "extensionVersion": "0.1.0",
+  "extensionVersion": "0.2.0",
   "annotations": [
     {
+      "mode": "act",
       "instruction": "Make this button larger and blue",
       "page": { "url": "https://example.com/app", "title": "My App" },
       "element": {
         "selector": "button.cta",
         "tag": "BUTTON",
-        "text": "Sign up",
+        "id": "signup",
+        "testId": "signup-cta",
         "role": "button",
         "ariaLabel": "Sign up",
+        "classes": ["cta", "primary"],
+        "text": "Sign up",
         "bounds": { "x": 100, "y": 200, "width": 120, "height": 40 },
+        "inShadow": false,
         "html": "<button class=\"cta\">Sign up</button>"
       }
     }
@@ -100,7 +113,13 @@ The extension POSTs to `/annotations`:
 }
 ```
 
-`GET /status` returns `{ ok, activeSession, host, port }` for a quick health check.
+`mode` is `"act"` (respond now, flushing any queued) or `"queue"` (hold for
+context until the next act). The plugin surfaces the most code-locatable
+identifiers first (testId, id, name, role) and treats the CSS path and bounds as
+weak hints.
+
+`GET /status` returns `{ ok, activeSession, sessionID, sessionTitle, queued, host, port }`
+for a quick health check and to show the target session.
 
 ## Develop
 

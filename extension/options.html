@@ -3,65 +3,44 @@
   <head>
     <meta charset="utf-8" />
     <style>
+      :root { color-scheme: light; }
       body {
-        font-family: system-ui, sans-serif;
-        max-width: 520px;
-        margin: 24px auto;
-        padding: 0 16px;
-        color: #1a1a1a;
+        font: 14px/1.5 system-ui, -apple-system, sans-serif;
+        max-width: 540px; margin: 40px auto; padding: 0 20px; color: #1c1d21;
       }
-      label {
-        display: block;
-        font-weight: 600;
-        margin-bottom: 6px;
-      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      p.sub { color: #6a6d75; margin: 0 0 24px; }
+      label { display: block; font-weight: 650; margin-bottom: 6px; }
       input {
-        width: 100%;
-        font: inherit;
-        padding: 8px;
-        border: 1px solid #ccc;
-        border-radius: 6px;
-        box-sizing: border-box;
+        width: 100%; box-sizing: border-box; font: inherit;
+        padding: 10px 12px; border: 1px solid rgba(0,0,0,.15); border-radius: 10px;
       }
+      input:focus { outline: none; border-color: #2b7cff; box-shadow: 0 0 0 3px rgba(43,124,255,.15); }
       button {
-        font: inherit;
-        margin-top: 12px;
-        padding: 8px 14px;
-        border: 1px solid #2b7cff;
-        border-radius: 6px;
-        background: #2b7cff;
-        color: #fff;
-        cursor: pointer;
+        font: inherit; font-weight: 600; margin-top: 16px;
+        padding: 9px 16px; border-radius: 10px; cursor: pointer;
+        color: #fff; background: #2b7cff; border: 1px solid #2b7cff;
       }
-      p {
-        color: #555;
-        font-size: 13px;
-        line-height: 1.5;
-      }
-      code {
-        background: #f2f2f2;
-        padding: 1px 4px;
-        border-radius: 4px;
-      }
-      #saved {
-        color: #0a0;
-        font-size: 13px;
-        margin-left: 8px;
-      }
+      button:hover { background: #1e6ef0; }
+      .hint { color: #6a6d75; font-size: 13px; line-height: 1.6; margin-top: 18px; }
+      code { background: #f0f1f4; padding: 2px 6px; border-radius: 6px; font: 12.5px ui-monospace, monospace; }
+      #saved { color: #178048; font-size: 13px; margin-left: 10px; }
     </style>
   </head>
   <body>
-    <h1>OpenCode Annotation settings</h1>
+    <h1>OpenCode Annotation</h1>
+    <p class="sub">Send element annotations to your OpenCode agent. Text and metadata only.</p>
+
     <label for="endpoint">Plugin endpoint</label>
     <input id="endpoint" type="text" placeholder="http://127.0.0.1:39517" />
-    <p>
-      The URL of the plugin's HTTP server. When OpenCode runs on a remote host,
-      forward the port with a reverse tunnel and point this at the local end:
-      <br />
-      <code>ssh -N -R 39517:127.0.0.1:39517 you@server</code>
-    </p>
     <button id="save">Save</button>
     <span id="saved"></span>
+
+    <div class="hint">
+      <p><strong>Shortcut:</strong> press <code>Alt+A</code> on any page to toggle the annotation overlay.</p>
+      <p>When OpenCode runs on a remote host, forward the port from your desktop and point this at the local end:</p>
+      <p><code>ssh -N -L 39517:127.0.0.1:39517 you@host</code></p>
+    </div>
     <script src="options.js"></script>
   </body>
 </html>

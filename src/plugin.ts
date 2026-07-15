@@ -1,15 +1,17 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 
-
 /**
  * opencode-browser-annotation-plugin
  *
  * Runs a loopback HTTP server on the OpenCode host. A browser extension POSTs
- * annotations (a typed instruction plus selected-element metadata) to it, over
- * an `ssh -R` reverse tunnel when the browser is on a separate desktop. On
- * receipt, the plugin injects a new user turn into the most recently active
- * OpenCode session so the agent responds.
+ * annotations (a typed instruction plus selected-element metadata) to it. When
+ * the browser runs on a separate desktop, the extension reaches this server over
+ * an `ssh -L` local forward (desktop -> host).
+ *
+ * On receipt the plugin injects a new user turn into the most recently active
+ * OpenCode session so the agent responds. Annotations may be acted on
+ * immediately ("act") or queued and flushed with a later act ("queue").
  *
  * Scope: text + element metadata only. No screenshots, no image/vision.
  */
@@ -20,15 +22,27 @@ const DEFAULT_PORT = 39_517;
 interface ElementMeta {
   selector?: string;
   tag?: string;
-  text?: string;
+  id?: string;
+  name?: string;
+  testId?: string;
   role?: string;
   ariaLabel?: string;
+  classes?: string[];
+  text?: string;
+  href?: string;
+  src?: string;
   bounds?: { x: number; y: number; width: number; height: number };
+  inShadow?: boolean;
+  inIframe?: boolean;
+  framePath?: string;
   html?: string;
 }
 
+type AnnotationMode = "act" | "queue";
+
 interface Annotation {
   instruction?: string;
+  mode?: AnnotationMode;
   page?: { url?: string; title?: string };
   element?: ElementMeta;
 }
@@ -52,49 +66,69 @@ function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max)}…` : value;
 }
 
+/**
+ * Surface the most code-locatable identifiers first: test ids and framework
+ * hooks are what map to source, not pixel bounds.
+ */
 function formatElement(el: ElementMeta | undefined): string {
-  if (!el) return "- (no element captured)";
+  if (!el) return "  (no element captured)";
   const lines: string[] = [];
-  if (el.tag) lines.push(`- Tag: ${el.tag}`);
-  if (el.selector) lines.push(`- Selector: ${el.selector}`);
-  if (el.role) lines.push(`- Role: ${el.role}`);
-  if (el.ariaLabel) lines.push(`- ARIA label: ${el.ariaLabel}`);
-  if (el.text) lines.push(`- Text: ${truncate(el.text.trim(), 300)}`);
+  const tag = el.tag ? el.tag.toLowerCase() : "element";
+  lines.push(`  Element: <${tag}>`);
+  if (el.testId) lines.push(`  data-testid: ${el.testId}`);
+  if (el.id) lines.push(`  id: ${el.id}`);
+  if (el.name) lines.push(`  name: ${el.name}`);
+  if (el.role) lines.push(`  role: ${el.role}`);
+  if (el.ariaLabel) lines.push(`  aria-label: ${el.ariaLabel}`);
+  if (el.classes && el.classes.length) lines.push(`  classes: ${el.classes.slice(0, 8).join(" ")}`);
+  if (el.href) lines.push(`  href: ${el.href}`);
+  if (el.src) lines.push(`  src: ${el.src}`);
+  if (el.text) lines.push(`  text: ${JSON.stringify(truncate(el.text.trim(), 200))}`);
+  if (el.selector) lines.push(`  css path: ${el.selector}`);
+  const context: string[] = [];
+  if (el.inShadow) context.push("inside a shadow DOM");
+  if (el.inIframe) context.push(`inside an iframe${el.framePath ? ` (${el.framePath})` : ""}`);
+  if (context.length) lines.push(`  context: ${context.join(", ")}`);
   if (el.bounds) {
     const b = el.bounds;
-    lines.push(`- Bounds: x=${Math.round(b.x)} y=${Math.round(b.y)} w=${Math.round(b.width)} h=${Math.round(b.height)}`);
+    lines.push(`  viewport bounds: ${Math.round(b.width)}×${Math.round(b.height)} at (${Math.round(b.x)}, ${Math.round(b.y)})`);
   }
-  if (el.html) lines.push(`- Outer HTML: ${truncate(el.html.trim(), 600)}`);
-  return lines.length ? lines.join("\n") : "- (no element details)";
+  if (el.html) lines.push(`  outer html: ${truncate(el.html.trim(), 500)}`);
+  return lines.join("\n");
+}
+
+function annotationBlock(a: Annotation, index: number, total: number): string {
+  const label = total > 1 ? ` ${index + 1}` : "";
+  const page = a.page ?? {};
+  const instruction = (a.instruction ?? "").trim() || "(no instruction text)";
+  return [
+    `### Annotation${label}`,
+    `Instruction: ${instruction}`,
+    page.url ? `Page: ${page.title ? `${page.title} — ` : ""}${page.url}` : "",
+    "Selected element:",
+    formatElement(a.element),
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function buildPrompt(annotations: Annotation[]): string {
   const header =
     annotations.length > 1
-      ? `The user submitted ${annotations.length} browser annotations. Address each one.`
-      : "The user submitted a browser annotation.";
+      ? `The user made ${annotations.length} annotations in the browser. Address each one.`
+      : "The user made an annotation in the browser.";
 
-  const blocks = annotations.map((a, i) => {
-    const n = annotations.length > 1 ? ` ${i + 1}` : "";
-    const page = a.page ?? {};
-    const instruction = (a.instruction ?? "").trim() || "(no instruction text)";
-    return [
-      `## Annotation${n}`,
-      `Instruction: ${instruction}`,
-      page.url ? `Page: ${page.title ? `${page.title} — ` : ""}${page.url}` : "",
-      "Selected element:",
-      formatElement(a.element),
-    ]
-      .filter(Boolean)
-      .join("\n");
-  });
+  const blocks = annotations.map((a, i) => annotationBlock(a, i, annotations.length));
 
   return [
     header,
     "",
     ...blocks,
     "",
-    "Use the element metadata to locate the relevant code and make the requested change. No screenshot is attached.",
+    "Guidance:",
+    "- Locate the code for each element using the most stable identifier available (data-testid, id, name, role, then unique class or text). Treat the CSS path and viewport bounds as weak hints only.",
+    "- Confirm the element actually exists in this codebase before editing; if you cannot find it, say so instead of guessing.",
+    "- No screenshot is attached; reason from the metadata and the code.",
   ].join("\n");
 }
 
@@ -141,7 +175,9 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
   const port = envPort();
 
   let activeSessionID: string | null = null;
+  let activeSessionTitle: string | null = null;
   let server: Server | null = null;
+  const queued: Annotation[] = [];
 
   const log = (level: "info" | "warn" | "error", message: string, extra?: Record<string, unknown>) => {
     void client.app
@@ -149,23 +185,52 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
       .catch(() => {});
   };
 
-  async function inject(annotations: Annotation[]): Promise<{ ok: boolean; error?: string; sessionID?: string }> {
-    if (!activeSessionID) {
-      return { ok: false, error: "No active OpenCode session yet. Send a message in OpenCode first." };
-    }
+  async function injectPrompt(annotations: Annotation[]): Promise<{ ok: boolean; error?: string }> {
     try {
-      // promptAsync injects the turn without blocking on the agent's full
-      // response, so the extension gets a prompt acknowledgement.
       await client.session.promptAsync({
-        path: { id: activeSessionID },
+        path: { id: activeSessionID as string },
         query: { directory },
         body: { parts: [{ type: "text", text: buildPrompt(annotations) }] },
       });
-      return { ok: true, sessionID: activeSessionID };
+      return { ok: true };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "session.prompt failed";
-      return { ok: false, error: message, sessionID: activeSessionID };
+      return { ok: false, error: error instanceof Error ? error.message : "session.prompt failed" };
     }
+  }
+
+  /**
+   * Queue annotations are held until an "act" annotation arrives (or all-queue
+   * submits nothing yet). An act annotation flushes the queue plus itself.
+   */
+  async function handleSubmit(
+    annotations: Annotation[],
+  ): Promise<{ ok: boolean; error?: string; injected: number; queued: number; sessionID?: string }> {
+    if (!activeSessionID) {
+      return {
+        ok: false,
+        error: "No active OpenCode session yet. Send a message in OpenCode first.",
+        injected: 0,
+        queued: queued.length,
+      };
+    }
+
+    const toQueue = annotations.filter((a) => a.mode === "queue");
+    const toAct = annotations.filter((a) => a.mode !== "queue");
+    queued.push(...toQueue);
+
+    if (toAct.length === 0) {
+      return { ok: true, injected: 0, queued: queued.length, sessionID: activeSessionID };
+    }
+
+    const batch = [...queued, ...toAct];
+    queued.length = 0;
+    const result = await injectPrompt(batch);
+    if (!result.ok) {
+      // Re-queue so nothing is lost.
+      queued.unshift(...batch.filter((a) => a.mode === "queue"));
+      return { ok: false, error: result.error, injected: 0, queued: queued.length, sessionID: activeSessionID };
+    }
+    return { ok: true, injected: batch.length, queued: queued.length, sessionID: activeSessionID };
   }
 
   function handle(req: IncomingMessage, res: ServerResponse): void {
@@ -174,7 +239,15 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
       return;
     }
     if (req.method === "GET" && req.url === "/status") {
-      sendJson(res, 200, { ok: true, activeSession: Boolean(activeSessionID), host, port });
+      sendJson(res, 200, {
+        ok: true,
+        activeSession: Boolean(activeSessionID),
+        sessionID: activeSessionID,
+        sessionTitle: activeSessionTitle,
+        queued: queued.length,
+        host,
+        port,
+      });
       return;
     }
     if (req.method === "POST" && req.url === "/annotations") {
@@ -186,12 +259,14 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
             sendJson(res, 400, { ok: false, error: "No annotations in payload." });
             return;
           }
-          const result = await inject(annotations);
+          const result = await handleSubmit(annotations);
           if (result.ok) {
-            log("info", `Injected ${annotations.length} annotation(s)`, { sessionID: result.sessionID });
-            sendJson(res, 200, { ok: true, count: annotations.length, sessionID: result.sessionID });
+            log("info", `Annotations: injected ${result.injected}, queued ${result.queued}`, {
+              sessionID: result.sessionID,
+            });
+            sendJson(res, 200, result);
           } else {
-            log("warn", `Annotation injection failed: ${result.error}`);
+            log("warn", `Annotation submit failed: ${result.error}`);
             sendJson(res, 409, result);
           }
         })
@@ -229,8 +304,16 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
       if (input?.sessionID) activeSessionID = input.sessionID;
     },
     event: async ({ event }) => {
-      if (event.type === "session.deleted") {
-        if (event.properties.info.id === activeSessionID) activeSessionID = null;
+      if (event.type === "session.updated") {
+        const info = event.properties.info;
+        if (info.id === activeSessionID && typeof info.title === "string") {
+          activeSessionTitle = info.title;
+        }
+      } else if (event.type === "session.deleted") {
+        if (event.properties.info.id === activeSessionID) {
+          activeSessionID = null;
+          activeSessionTitle = null;
+        }
       }
     },
   };

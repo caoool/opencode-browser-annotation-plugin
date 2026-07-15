@@ -1,17 +1,25 @@
 {
   "manifest_version": 3,
   "name": "OpenCode Browser Annotation",
-  "version": "0.1.0",
-  "description": "Select an element, type an instruction, and send it to your OpenCode agent. Text and element metadata only.",
+  "version": "0.2.0",
+  "description": "Alt+A to annotate elements and send them to your OpenCode agent. Text and element metadata only.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
-  "action": {
-    "default_popup": "popup.html",
-    "default_title": "OpenCode Annotation"
-  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
-  "options_page": "options.html"
+  "action": {
+    "default_title": "Toggle OpenCode Annotation (Alt+A)"
+  },
+  "options_page": "options.html",
+  "commands": {
+    "toggle-overlay": {
+      "suggested_key": {
+        "default": "Alt+A",
+        "mac": "Alt+A"
+      },
+      "description": "Toggle the annotation overlay"
+    }
+  }
 }
