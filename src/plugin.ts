@@ -123,14 +123,15 @@ async function readJsonBody(req: IncomingMessage, limitBytes = 2_000_000): Promi
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
-  res.writeHead(status, {
-    "content-type": "application/json",
-    "content-length": Buffer.byteLength(payload),
-    // The extension calls from a browser origin; allow it to read the response.
-    "access-control-allow-origin": "*",
-    "access-control-allow-headers": "content-type",
-    "access-control-allow-methods": "POST, GET, OPTIONS",
-  });
+  // Set headers individually and assign statusCode before end(). Combined
+  // writeHead(status, headers) is not reliably flushed by the Bun node:http
+  // compatibility layer that OpenCode runs under, which yields empty replies.
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  // The extension calls from a browser origin; allow it to read the response.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "content-type");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.statusCode = status;
   res.end(payload);
 }
 
