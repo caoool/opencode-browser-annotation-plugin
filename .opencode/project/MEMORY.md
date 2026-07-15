@@ -27,6 +27,11 @@ Durable, verified knowledge for the browser-annotation plugin.
 
   `prepublishOnly` builds `dist/` automatically. `npm publish` opens the browser passkey prompt. For an update, run `npm version patch|minor|major` (or edit `package.json`) before `npm publish`. Alternatively use CI trusted publishing via `.github/workflows/publish.yml` on a GitHub release (OIDC, no passkey).
 
+## Runtime notes
+
+- OpenCode runs plugins under a bundled Bun runtime (no system `bun`). Its `node:http` compat layer does NOT reliably flush `res.writeHead(status, headers)`; that produced empty replies / http=000 on the plugin server (v0.1.0 bug). Fix: use `res.setHeader(...)` + `res.statusCode = ...` + `res.end(...)` separately (v0.1.1). Verified in a live `opencode serve` on the Bun runtime. Source: tested; verified 2026-07-15.
+- The plugin server initializes lazily on the first session; `/status` shows `activeSession:false` until a message is sent (the `chat.message` hook sets the id).
+
 ## Conventions
 
 - Never auto-commit; the user commits.
