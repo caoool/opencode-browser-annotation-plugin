@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — OpenCode Browser Annotation</title>
+<meta name="description" content="Privacy policy for the OpenCode Browser Annotation Chrome extension. No data is collected; annotations are sent only to your own local OpenCode endpoint.">
+<link rel="icon" type="image/png" href="./img/icon-128.png">
+<style>
+  :root{--bg:#0e1014;--panel:#171a21;--line:#262b34;--ink:#e7e9ee;--mut:#9aa0ad;--brand:#4c8dff;--mint:#39c79a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.7 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:var(--brand);text-decoration:none} a:hover{text-decoration:underline}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#20242d;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.9em}
+  .wrap{max-width:760px;margin:0 auto;padding:0 22px}
+  nav{border-bottom:1px solid var(--line);background:rgba(14,16,20,.85);position:sticky;top:0;backdrop-filter:blur(10px)}
+  nav .wrap{display:flex;align-items:center;gap:12px;height:58px}
+  nav img{width:26px;height:26px;border-radius:6px}
+  nav .name{font-weight:700;letter-spacing:-.2px}
+  nav .spacer{flex:1}
+  nav a.back{color:var(--mut);font-size:14.5px}
+  header{padding:56px 0 10px}
+  h1{font-size:clamp(28px,4vw,40px);margin:0 0 8px;letter-spacing:-.8px;font-weight:800}
+  .updated{color:var(--mut);font-size:14px;margin-bottom:8px}
+  .tldr{display:flex;gap:12px;background:rgba(57,199,154,.08);border:1px solid rgba(57,199,154,.28);
+    border-radius:12px;padding:16px 18px;margin:26px 0 8px;color:#c7ecdd}
+  .tldr svg{width:20px;height:20px;flex:none;color:var(--mint);margin-top:2px}
+  main{padding:20px 0 70px}
+  h2{font-size:20px;margin:34px 0 10px;letter-spacing:-.3px;font-weight:750}
+  p,li{color:#d4d7de}
+  .mut{color:var(--mut)}
+  ul{padding-left:20px} li{margin:6px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px 20px;margin:14px 0}
+  footer{border-top:1px solid var(--line);padding:26px 0 50px;color:var(--mut);font-size:14px}
+</style>
+</head>
+<body>
+<nav>
+  <div class="wrap">
+    <img src="./img/icon-128.png" alt="">
+    <span class="name">OpenCode Browser Annotation</span>
+    <span class="spacer"></span>
+    <a class="back" href="./">&larr; Back to home</a>
+  </div>
+</nav>
+
+<div class="wrap">
+  <header>
+    <h1>Privacy Policy</h1>
+    <div class="updated">Last updated: July 15, 2026</div>
+  </header>
+
+  <div class="tldr">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+    <div><strong>In short:</strong> This extension collects no personal data, has no analytics or trackers,
+      and sends nothing to the developer or any third party. Your annotations go only to your own
+      OpenCode agent running on <code>127.0.0.1</code> (localhost).</div>
+  </div>
+
+  <main>
+    <h2>Who this applies to</h2>
+    <p>This policy covers the <strong>OpenCode Browser Annotation</strong> Chrome extension (the “Extension”).
+      The Extension is the browser half of an open-source developer tool; it pairs with the
+      <code>opencode-browser-annotation-plugin</code> that runs locally on your own machine or server.</p>
+
+    <h2>What the Extension does</h2>
+    <p>When you invoke it (via <code>Alt+A</code>, <code>Alt+Shift+A</code>, or the toolbar button), you can select an
+      element on the current page and type an instruction. The Extension gathers structured metadata about that
+      element — such as its tag, id, <code>data-testid</code>, ARIA role, CSS classes, visible text, DOM ancestors, and
+      (where available) its UI-framework component path — and sends it, together with your typed instruction, to
+      your own locally-running OpenCode agent.</p>
+
+    <h2>Data we collect</h2>
+    <div class="card">
+      <p><strong>None.</strong> The developer does not collect, receive, store, sell, or transmit any user data.
+        There are no analytics, no telemetry, no advertising identifiers, and no third-party services.</p>
+    </div>
+
+    <h2>Where your data goes</h2>
+    <ul>
+      <li>Annotation data (your instruction text and the selected element's metadata) is sent
+        <strong>only</strong> to the endpoint you configure, which defaults to your own local OpenCode server at
+        <code>http://127.0.0.1:39517</code>.</li>
+      <li>When your OpenCode agent runs on a remote server, that traffic travels through an <strong>SSH tunnel you
+        set up yourself</strong>. The Extension never opens a public connection and never contacts the developer.</li>
+      <li><strong>No screenshots are sent.</strong> A small element thumbnail may be rendered locally inside the
+        sidebar for your reference only; it is stripped from the payload before submission and never leaves your
+        browser.</li>
+      <li>Values that look sensitive (for example CSRF tokens, passwords, and auth fields) are
+        <strong>redacted</strong> from captured markup before anything is sent.</li>
+    </ul>
+
+    <h2>Local storage</h2>
+    <p>The Extension stores exactly one setting locally in your browser using <code>chrome.storage</code>: the OpenCode
+      endpoint URL. This never leaves your device except as the destination you yourself configured.</p>
+
+    <h2>Permissions and why they are used</h2>
+    <ul>
+      <li><strong>activeTab</strong> — to run the annotation overlay on the tab you are currently viewing, only when
+        you invoke the Extension.</li>
+      <li><strong>scripting</strong> — to inject the element-picker and sidebar UI into the current tab on demand.</li>
+      <li><strong>storage</strong> — to remember your endpoint URL setting.</li>
+      <li><strong>Host access to <code>127.0.0.1</code> / <code>localhost</code></strong> — to deliver annotations to your own
+        local OpenCode plugin. No remote hosts are contacted.</li>
+    </ul>
+
+    <h2>Remote code</h2>
+    <p>All code is bundled in the Extension package. No remote or dynamically-evaluated code is loaded or executed.</p>
+
+    <h2>Children</h2>
+    <p>This is a developer tool and is not directed to children under 13.</p>
+
+    <h2>Changes to this policy</h2>
+    <p>If this policy changes, the updated version will be posted at this URL with a new “Last updated” date.</p>
+
+    <h2>Contact</h2>
+    <p>Questions or requests can be raised on the project's issue tracker:
+      <a href="https://github.com/caoool/opencode-browser-annotation-plugin/issues">github.com/caoool/opencode-browser-annotation-plugin/issues</a>.</p>
+  </main>
+
+  <footer>
+    <a href="./">Home</a> &nbsp;·&nbsp;
+    <a href="https://github.com/caoool/opencode-browser-annotation-plugin">GitHub</a> &nbsp;·&nbsp;
+    <a href="https://github.com/caoool/opencode-browser-annotation-plugin/issues">Support</a>
+  </footer>
+</div>
+</body>
+</html>
