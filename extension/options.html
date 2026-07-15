@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 520px;
+        margin: 24px auto;
+        padding: 0 16px;
+        color: #1a1a1a;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      input {
+        width: 100%;
+        font: inherit;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        box-sizing: border-box;
+      }
+      button {
+        font: inherit;
+        margin-top: 12px;
+        padding: 8px 14px;
+        border: 1px solid #2b7cff;
+        border-radius: 6px;
+        background: #2b7cff;
+        color: #fff;
+        cursor: pointer;
+      }
+      p {
+        color: #555;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      code {
+        background: #f2f2f2;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      #saved {
+        color: #0a0;
+        font-size: 13px;
+        margin-left: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>OpenCode Annotation settings</h1>
+    <label for="endpoint">Plugin endpoint</label>
+    <input id="endpoint" type="text" placeholder="http://127.0.0.1:39517" />
+    <p>
+      The URL of the plugin's HTTP server. When OpenCode runs on a remote host,
+      forward the port with a reverse tunnel and point this at the local end:
+      <br />
+      <code>ssh -N -R 39517:127.0.0.1:39517 you@server</code>
+    </p>
+    <button id="save">Save</button>
+    <span id="saved"></span>
+    <script src="options.js"></script>
+  </body>
+</html>

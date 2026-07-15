@@ -1,22 +1,24 @@
 # Project Handoff
 
-- Updated: 2026-07-15T03:31:36Z
-- Branch: `main` (empty repo; only project state committed)
-- Session focus: planning complete via grilling; ready to scaffold code.
+- Updated: 2026-07-15T04:00:00Z
+- Branch: `main`
+- Session focus: built and verified the v0.1 plugin + extension.
 
 ## Current Objective
 
-Scaffold the plugin package + CI/trusted-publishing skeleton, then build the
-extension + plugin loop for gap 1 (instruction + element metadata → agent).
+Local install for the user + a live in-browser test over the tunnel; then set up
+npm trusted publishing and cut a release.
 
 ## Completed
 
 - Grilling session (2026-07-14) locked scope and architecture; see DECISIONS and FINDINGS.
-- Verified plugin injection path, transport choice, and the vision situation (dropped).
+- Built the plugin (`src/plugin.ts`) and verified injection end-to-end in a live `opencode serve` — the agent received and acted on an annotation.
+- Switched injection to `client.session.promptAsync` so the extension gets a fast ack.
+- Built the MV3 Chrome extension (`extension/`), README, CI + publish workflows.
 
 ## Current Changes
 
-- Only `.opencode/project/` state exists; no source code yet.
+- Source, extension, README, workflows added. `dist/` is built locally (gitignored).
 
 ## Decisions and Findings
 

@@ -1,0 +1,43 @@
+{
+  "name": "opencode-browser-annotation-plugin",
+  "version": "0.1.0",
+  "description": "Select an element in your browser, type an instruction, and send it to your OpenCode agent over a loopback + SSH tunnel. Text and element metadata only (no screenshots).",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "browser",
+    "annotation",
+    "chrome-extension"
+  ],
+  "license": "MIT",
+  "author": "caoool",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/caoool/opencode-browser-annotation-plugin.git"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/plugin.d.ts",
+      "default": "./dist/plugin.js"
+    }
+  },
+  "files": [
+    "dist",
+    "extension",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.18.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.18.1",
+    "@types/node": "^26.1.1",
+    "typescript": "^5.6.0"
+  }
+}

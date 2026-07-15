@@ -1,0 +1,25 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for npm trusted publishing (OIDC provenance)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # Trusted publishing: no NODE_AUTH_TOKEN. Configure this repo + workflow as
+      # a trusted publisher for the package on npmjs.com. Requires npm >= 11.5.1.
+      - run: npm install -g npm@latest
+      - run: npm publish --provenance --access public
