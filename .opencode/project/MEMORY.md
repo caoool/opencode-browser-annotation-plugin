@@ -17,7 +17,8 @@ Durable, verified knowledge for the browser-annotation plugin.
 
 - Published to npm as `opencode-browser-annotation-plugin` (first version 0.1.0, 2026-07-15).
 - npm TRUSTED PUBLISHING is configured for this repo (set up by the user 2026-07-15). Publishing is done by CI via `.github/workflows/publish.yml`, which runs on a published GitHub release and uses OIDC (`id-token: write`, `npm publish --provenance`). No passkey or token is needed for CI publishes. This is the primary publish path.
-- To release a new version: bump `package.json` (`npm version patch|minor|major`), push, then create a GitHub release whose tag matches (e.g. `gh release create v0.1.1 --generate-notes`). The workflow publishes automatically. The agent CAN create the release with `gh`; verify the workflow run afterward.
+- To release a new version: bump `package.json` (`npm version patch|minor|major`), push, then create a GitHub release whose tag matches (`gh release create vX.Y.Z --target main --generate-notes`). The workflow publishes automatically. The agent CAN create the release with `gh`; verify the run with `gh run watch`.
+- Publish workflow requires Node 24 + `npm install -g npm@11` (trusted publishing needs npm >= 11.5.1, and npm@latest/@12 needs Node >= 22, so Node 20 fails with EBADENGINE). Verified: v0.1.1 published via CI trusted publishing with provenance on 2026-07-15. If a release re-run is needed after fixing the workflow, delete + recreate the release/tag so it runs against updated main (`gh release delete vX.Y.Z --cleanup-tag`).
 - The user's npm account uses a passkey (WebAuthn), so manual `npm publish` cannot be completed from the headless server — it needs the user's desktop. Prefer the CI/trusted-publishing path above instead of manual publish.
 
 ## Runtime notes
