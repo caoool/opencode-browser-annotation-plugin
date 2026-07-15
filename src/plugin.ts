@@ -35,6 +35,10 @@ interface ElementMeta {
   inShadow?: boolean;
   inIframe?: boolean;
   framePath?: string;
+  ancestors?: string[];
+  landmark?: string;
+  componentPath?: string;
+  framework?: string;
   html?: string;
 }
 
@@ -82,6 +86,9 @@ function formatElement(el: ElementMeta | undefined): string {
   if (el.href) lines.push(`  href: ${el.href}`);
   if (el.src) lines.push(`  src: ${el.src}`);
   if (el.text) lines.push(`  text: ${JSON.stringify(truncate(el.text.trim(), 200))}`);
+  if (el.componentPath) lines.push(`  ${el.framework ?? "component"} components: ${el.componentPath}`);
+  if (el.landmark) lines.push(`  nearest region: ${el.landmark}`);
+  if (el.ancestors && el.ancestors.length) lines.push(`  ancestors (nearest first): ${el.ancestors.join(" < ")}`);
   if (el.selector) lines.push(`  css path: ${el.selector}`);
   const context: string[] = [];
   if (el.inShadow) context.push("inside a shadow DOM");
@@ -124,7 +131,8 @@ function buildPrompt(annotations: Annotation[]): string {
     ...blocks,
     "",
     "Guidance:",
-    "- Locate the code for each element using the most stable identifier available (data-testid, id, name, role, then unique class or text). Treat the CSS path and viewport bounds as weak hints only.",
+    "- Locate the code for each element using the most stable identifier available: framework component path first if given, then data-testid, id, name, role, then the ancestor chain and nearest region to disambiguate, then unique class or text. Treat the CSS path and viewport bounds as weak hints only.",
+    "- Use the ancestors and nearest region to find the right component/file when the element itself is generic (e.g. a bare button that appears many times).",
     "- Confirm the element actually exists in this codebase before editing; if you cannot find it, say so instead of guessing.",
     "- No screenshot is attached; reason from the metadata and the code.",
   ].join("\n");
@@ -181,29 +189,51 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
   let activeSessionID: string | null = null;
   let server: Server | null = null;
 
+  // Sessions that showed activity in THIS OpenCode run (created, messaged, or
+  // status/idle events). OpenCode has no open/closed flag, so this approximates
+  // "sessions you're currently working in". Deleted sessions are removed.
+  const activeIDs = new Set<string>();
+  const RECENT_FALLBACK_MS = 2 * 60 * 60 * 1000; // 2h
+  const RECENT_FALLBACK_MAX = 8;
+
   const log = (level: "info" | "warn" | "error", message: string, extra?: Record<string, unknown>) => {
     void client.app
       .log({ body: { service: "browser-annotation", level, message, extra } })
       .catch(() => {});
   };
 
-  /**
-   * All sessions live in this one OpenCode process, so the plugin can address
-   * any of them by id — a single HTTP port/tunnel does not limit targeting.
-   * Returns top-level sessions (no parentID), most-recently-updated first.
-   */
-  async function listSessions(): Promise<SessionInfo[]> {
+  async function allSessions(): Promise<SessionInfo[]> {
     try {
       const res = (await client.session.list({ query: { directory } })) as unknown;
       const rows: any[] = Array.isArray(res) ? res : Array.isArray((res as any)?.data) ? (res as any).data : [];
       return rows
         .filter((s) => s && typeof s.id === "string" && !s.parentID)
-        .map((s) => ({ id: s.id, title: typeof s.title === "string" ? s.title : s.id, updated: s.time?.updated ?? 0 }))
-        .sort((a, b) => b.updated - a.updated);
+        .map((s) => ({ id: s.id, title: typeof s.title === "string" ? s.title : s.id, updated: s.time?.updated ?? 0 }));
     } catch (error) {
       log("warn", `session.list failed: ${error instanceof Error ? error.message : "unknown"}`);
       return [];
     }
+  }
+
+  /**
+   * The picker list: sessions active in this run (newest first). If none have
+   * been observed yet (e.g. right after a restart), fall back to the most
+   * recently updated few so the picker is not empty. All live in this one
+   * process, so any can be targeted over the single port.
+   */
+  async function listSessions(): Promise<SessionInfo[]> {
+    const all = await allSessions();
+    const byRecent = [...all].sort((a, b) => b.updated - a.updated);
+    // Prune ids that no longer exist.
+    const existing = new Set(all.map((s) => s.id));
+    for (const id of activeIDs) if (!existing.has(id)) activeIDs.delete(id);
+
+    if (activeIDs.size > 0) {
+      return byRecent.filter((s) => activeIDs.has(s.id));
+    }
+    const now = Date.now();
+    const recent = byRecent.filter((s) => now - s.updated < RECENT_FALLBACK_MS).slice(0, RECENT_FALLBACK_MAX);
+    return recent.length ? recent : byRecent.slice(0, RECENT_FALLBACK_MAX);
   }
 
   async function injectPrompt(sessionID: string, annotations: Annotation[]): Promise<{ ok: boolean; error?: string }> {
@@ -312,11 +342,28 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
 
   return {
     "chat.message": async (input) => {
-      if (input?.sessionID) activeSessionID = input.sessionID;
+      if (input?.sessionID) {
+        activeSessionID = input.sessionID;
+        activeIDs.add(input.sessionID);
+      }
     },
     event: async ({ event }) => {
-      if (event.type === "session.deleted") {
-        if (event.properties.info.id === activeSessionID) activeSessionID = null;
+      if (event.type === "session.created") {
+        const id = event.properties.info.id;
+        if (id) activeIDs.add(id);
+      } else if (event.type === "session.updated") {
+        const id = event.properties.info.id;
+        if (id) activeIDs.add(id);
+      } else if (event.type === "session.status") {
+        const id = event.properties.sessionID;
+        if (id) activeIDs.add(id);
+      } else if (event.type === "session.idle") {
+        const id = event.properties.sessionID;
+        if (id) activeIDs.add(id);
+      } else if (event.type === "session.deleted") {
+        const id = event.properties.info.id;
+        activeIDs.delete(id);
+        if (id === activeSessionID) activeSessionID = null;
       }
     },
   };

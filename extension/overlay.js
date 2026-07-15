@@ -228,9 +228,99 @@
     return parts.join(" > ");
   }
 
+  // A compact one-line signature of an element: tag + the most locating bits.
+  function elemSignature(el) {
+    if (!(el instanceof Element)) return "";
+    let s = el.tagName.toLowerCase();
+    const tid = bestTestId(el);
+    if (tid) s += `[data-testid=${tid}]`;
+    else if (el.id) s += `#${el.id}`;
+    const role = el.getAttribute && el.getAttribute("role");
+    if (role) s += `[role=${role}]`;
+    if (el.classList && el.classList.length) s += "." + Array.from(el.classList).slice(0, 3).join(".");
+    return s;
+  }
+
+  // Ancestor chain from the parent up to (but excluding) <body>, piercing shadow
+  // roots. Nearest first. Gives the agent "where in the tree" this element is.
+  function ancestorChain(el, max = 6) {
+    const chain = [];
+    let node = el.parentElement || (el.getRootNode && el.getRootNode().host) || null;
+    while (node && node.nodeType === 1 && chain.length < max) {
+      const tag = node.tagName ? node.tagName.toLowerCase() : "";
+      if (tag === "body" || tag === "html") break;
+      chain.push(elemSignature(node));
+      node = node.parentElement || (node.getRootNode && node.getRootNode() instanceof ShadowRoot ? node.getRootNode().host : null);
+    }
+    return chain;
+  }
+
+  // Nearest semantic landmark/region ancestor (main, nav, header, dialog, form,
+  // or any element with a data-component / data-testid). Tells the agent which
+  // feature/region of the page the element belongs to.
+  function nearestLandmark(el) {
+    const landmarkTags = new Set(["main", "nav", "header", "footer", "aside", "section", "article", "form", "dialog"]);
+    const landmarkRoles = new Set(["main", "navigation", "banner", "contentinfo", "dialog", "form", "search", "region"]);
+    let node = el.parentElement;
+    while (node && node.nodeType === 1) {
+      const tag = node.tagName.toLowerCase();
+      const role = node.getAttribute("role");
+      const comp = node.getAttribute("data-component") || node.getAttribute("data-testid");
+      if (landmarkTags.has(tag) || (role && landmarkRoles.has(role)) || comp) {
+        return elemSignature(node);
+      }
+      if (tag === "body") break;
+      node = node.parentElement;
+    }
+    return undefined;
+  }
+
+  // Best-effort framework component path (React/Preact fiber, or Vue). Returns
+  // e.g. "App > Dashboard > SignupCard". Absent on non-framework pages.
+  function frameworkComponents(el) {
+    try {
+      const keys = Object.keys(el);
+      const fiberKey = keys.find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"));
+      if (fiberKey) {
+        const names = [];
+        let cur = el[fiberKey];
+        let depth = 0;
+        while (cur && depth < 12) {
+          const t = cur.type;
+          let name = null;
+          if (typeof t === "function") name = t.displayName || t.name || null;
+          else if (t && typeof t === "object") name = (t.render && (t.render.displayName || t.render.name)) || (t.type && (t.type.displayName || t.type.name)) || null;
+          if (name && !name.startsWith("_") && name !== "Fragment") names.unshift(name);
+          cur = cur.return;
+          depth++;
+        }
+        if (names.length) return { framework: "react", path: names.slice(-6).join(" > ") };
+      }
+      // Vue 3 exposes __vueParentComponent; Vue 2 exposes __vue__.
+      let vnode = el.__vueParentComponent || (el.__vue__ && el.__vue__.$);
+      if (vnode) {
+        const names = [];
+        let cur = vnode;
+        let depth = 0;
+        while (cur && depth < 12) {
+          const type = cur.type || (cur.$options && cur.$options);
+          const name = (type && (type.name || type.__name)) || (cur.$options && cur.$options.name) || null;
+          if (name) names.unshift(name);
+          cur = cur.parent || (cur.$parent && cur.$parent.$);
+          depth++;
+        }
+        if (names.length) return { framework: "vue", path: names.slice(-6).join(" > ") };
+      }
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  }
+
   function elementMeta(el, inShadow) {
     const r = el.getBoundingClientRect();
     const classes = el.classList ? Array.from(el.classList) : [];
+    const fw = frameworkComponents(el);
     const m = {
       selector: cssPath(el),
       tag: el.tagName,
@@ -246,9 +336,14 @@
       bounds: { x: r.left, y: r.top, width: r.width, height: r.height },
       inShadow: Boolean(inShadow),
       inIframe: window.top !== window.self,
+      ancestors: ancestorChain(el),
+      landmark: nearestLandmark(el),
+      componentPath: fw ? fw.path : undefined,
+      framework: fw ? fw.framework : undefined,
       html: (el.outerHTML || "").slice(0, 800),
     };
     for (const k of Object.keys(m)) if (m[k] === undefined) delete m[k];
+    if (Array.isArray(m.ancestors) && m.ancestors.length === 0) delete m.ancestors;
     return m;
   }
 
@@ -548,7 +643,7 @@
     sb.style.display = "flex";
     renderCards();
     refreshStatus();
-    if (!statusTimer) statusTimer = setInterval(refreshStatus, 15000);
+    if (!statusTimer) statusTimer = setInterval(refreshStatus, 3500);
   }
 
   function closeSidebar() {
