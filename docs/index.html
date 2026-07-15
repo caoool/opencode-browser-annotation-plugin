@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCode Browser Annotation — point at the page, tell your agent</title>
+<meta name="description" content="Point at any element in your browser, type an instruction, and send it — with the element's metadata — to your OpenCode coding agent. Text and metadata only, no screenshots.">
+<link rel="icon" type="image/png" href="./img/icon-128.png">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="OpenCode Browser Annotation">
+<meta property="og:description" content="Point at any element in your browser, type an instruction, and send it to your OpenCode agent.">
+<meta property="og:image" content="./img/03-sidebar.png">
+<meta name="twitter:card" content="summary_large_image">
+
+<style>
+  :root{
+    --bg:#0e1014; --bg2:#14171d; --panel:#171a21; --line:#262b34;
+    --ink:#e7e9ee; --mut:#9aa0ad; --brand:#4c8dff; --mint:#39c79a;
+    --radius:16px; --max:1080px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.65 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  a{color:var(--brand);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 22px}
+  code,kbd,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  kbd{background:#20242d;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;
+    padding:1px 7px;font-size:.82em;color:#e7e9ee;white-space:nowrap}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:20;background:rgba(14,16,20,.82);
+    backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;gap:14px;height:60px}
+  nav img{width:28px;height:28px;border-radius:7px}
+  nav .name{font-weight:700;letter-spacing:-.2px}
+  nav .spacer{flex:1}
+  nav .links{display:flex;gap:22px;color:var(--mut);font-size:14.5px}
+  nav .links a{color:var(--mut)}
+  nav .links a:hover{color:var(--ink);text-decoration:none}
+  @media(max-width:640px){nav .links{display:none}}
+
+  /* hero */
+  header.hero{position:relative;overflow:hidden;
+    background:radial-gradient(1200px 500px at 50% -120px,rgba(76,141,255,.20),transparent 60%),
+      radial-gradient(900px 400px at 85% 0,rgba(57,199,154,.14),transparent 55%);
+    border-bottom:1px solid var(--line)}
+  .hero .wrap{padding:76px 22px 60px;text-align:center}
+  .badge{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--mut);
+    background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 14px;margin-bottom:26px}
+  .badge .dot{width:7px;height:7px;border-radius:50%;background:var(--mint)}
+  h1{font-size:clamp(32px,5.2vw,52px);line-height:1.08;margin:0 0 18px;letter-spacing:-1.2px;font-weight:800}
+  h1 .g{background:linear-gradient(100deg,var(--brand),var(--mint));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{font-size:clamp(16px,2.2vw,20px);color:var(--mut);max-width:640px;margin:0 auto 32px}
+  .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:9px;font-weight:650;font-size:15px;
+    padding:12px 20px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+  .btn:hover{text-decoration:none;border-color:#39404d}
+  .btn.primary{background:linear-gradient(100deg,var(--brand),#5b7cff);border-color:transparent;color:#fff}
+  .btn.primary:hover{filter:brightness(1.06)}
+  .btn svg{width:17px;height:17px}
+  .kbds{margin-top:26px;color:var(--mut);font-size:14px}
+
+  /* hero shot */
+  .shot{margin-top:48px;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;
+    box-shadow:0 30px 80px -30px rgba(0,0,0,.8);background:var(--bg2)}
+  .shot img{display:block;width:100%;height:auto}
+
+  section{padding:72px 0;border-bottom:1px solid var(--line)}
+  .eyebrow{color:var(--mint);font-weight:700;font-size:13px;letter-spacing:1.4px;text-transform:uppercase;margin:0 0 10px}
+  h2{font-size:clamp(24px,3.4vw,34px);margin:0 0 16px;letter-spacing:-.6px;font-weight:750}
+  .lead{color:var(--mut);max-width:660px;margin:0 0 8px}
+
+  /* feature grid */
+  .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:38px}
+  @media(max-width:820px){.grid{grid-template-columns:minmax(0,1fr)}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px;min-width:0}
+  .card .ic{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+    background:rgba(76,141,255,.14);color:var(--brand);margin-bottom:14px}
+  .card .ic.mint{background:rgba(57,199,154,.15);color:var(--mint)}
+  .card h3{margin:0 0 7px;font-size:17px;font-weight:700}
+  .card p{margin:0;color:var(--mut);font-size:14.5px}
+
+  /* steps */
+  .steps{counter-reset:s;margin-top:36px;display:grid;gap:16px;min-width:0}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px 24px;min-width:0}
+  .step::before{counter-increment:s;content:counter(s);display:inline-flex;align-items:center;justify-content:center;
+    width:30px;height:30px;border-radius:8px;background:var(--brand);color:#fff;font-weight:700;font-size:15px;margin-bottom:12px}
+  .step h3{margin:0 0 8px;font-size:18px}
+  .step p{margin:0 0 12px;color:var(--mut);font-size:14.5px}
+  pre{background:#0b0d11;border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow-x:auto;margin:12px 0 0;font-size:13.5px;line-height:1.6;white-space:pre;max-width:100%}
+  pre .c{color:#6f7684}
+  .tag{color:var(--mint)} .k{color:var(--brand)} .s{color:#e5c07b}
+
+  /* gallery */
+  .gallery{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:36px}
+  @media(max-width:820px){.gallery{grid-template-columns:minmax(0,1fr)}}
+  .gcard{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--bg2)}
+  .gcard img{display:block;width:100%;height:auto;border-bottom:1px solid var(--line)}
+  .gcard .cap{padding:12px 15px;font-size:13.5px;color:var(--mut)}
+  .gcard .cap b{color:var(--ink);font-weight:650}
+
+  .note{display:flex;gap:12px;background:rgba(76,141,255,.08);border:1px solid rgba(76,141,255,.25);
+    border-radius:12px;padding:14px 16px;margin-top:20px;font-size:14px;color:#c5d3ef}
+  .note svg{width:18px;height:18px;flex:none;color:var(--brand);margin-top:2px}
+
+  footer{padding:44px 0 60px;text-align:center;color:var(--mut);font-size:14px}
+  footer a{color:var(--mut)}
+  .privacy{max-width:640px;margin:14px auto 0;font-size:13px;line-height:1.7}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <img src="./img/icon-128.png" alt="">
+    <span class="name">OpenCode Browser Annotation</span>
+    <span class="spacer"></span>
+    <div class="links">
+      <a href="#how">How it works</a>
+      <a href="#install">Install</a>
+      <a href="#shots">Screenshots</a>
+      <a href="https://github.com/caoool/opencode-browser-annotation-plugin">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="badge"><span class="dot"></span> OpenCode plugin + Chrome extension</span>
+    <h1>Point at the page.<br><span class="g">Tell your agent what to change.</span></h1>
+    <p class="sub">Select any element in your browser, type an instruction, and send it — with the element's
+      full context — straight to your OpenCode coding agent. No more “the third card on the pricing section.”</p>
+    <div class="cta">
+      <a class="btn primary" href="#install">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Install
+      </a>
+      <a class="btn" href="https://github.com/caoool/opencode-browser-annotation-plugin">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.34-1.3-1.7-1.3-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.2-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.5 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.75.81 1.2 1.84 1.2 3.1 0 4.43-2.7 5.4-5.26 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.2.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5Z"/></svg>
+        View source
+      </a>
+    </div>
+    <p class="kbds"><kbd>Alt</kbd>+<kbd>A</kbd> pick an element &nbsp;·&nbsp; <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> open the list</p>
+
+    <div class="shot">
+      <img src="./img/03-sidebar.png" alt="OpenCode annotation sidebar with pending annotations and a live session picker" width="1280" height="800">
+    </div>
+  </div>
+</header>
+
+<!-- WHY / FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <p class="eyebrow">Why it works</p>
+    <h2>The agent gets the element, not a vague description</h2>
+    <p class="lead">Every annotation carries structured, code-locatable context — so your agent can find the
+      source behind what you clicked and change it with confidence.</p>
+
+    <div class="grid">
+      <div class="card">
+        <div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0H5a2 2 0 0 1-2-2v-4m6 6h10a2 2 0 0 0 2-2v-4"/></svg>
+        </div>
+        <h3>Real component context</h3>
+        <p>Tag, id, <code>data-testid</code>, role, ARIA, classes, text, ancestors, nearest landmark — plus the
+          React/Preact/Vue <b>component path</b> when available.</p>
+      </div>
+      <div class="card">
+        <div class="ic mint">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+        </div>
+        <h3>Privacy-first, local only</h3>
+        <p>Talks only to your own <code>127.0.0.1</code> endpoint over SSH. <b>No screenshots</b> are sent — text and
+          metadata only. Secret-looking attributes are redacted before anything leaves the page.</p>
+      </div>
+      <div class="card">
+        <div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </div>
+        <h3>Batch or send instantly</h3>
+        <p>Hit <b>Send</b> for one quick change, or <b>Add to list</b> to stack several annotations and submit
+          them together — each targeted at the agent session you choose.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how">
+  <div class="wrap">
+    <p class="eyebrow">How it works</p>
+    <h2>Desktop browser → SSH → agent on your server</h2>
+    <p class="lead">Built for a headless-server + remote-desktop setup. Chrome runs on your desktop; OpenCode runs on
+      a server you reach over SSH. The extension POSTs over a loopback forward — no public port.</p>
+    <pre><span class="c"># Desktop Chrome (extension)</span>
+  <span class="tag">Alt+A</span> → pick element → type instruction → <span class="k">Send</span>
+       └─ POST http://127.0.0.1:39517/annotations   <span class="c">(via ssh -L when remote)</span>
+
+<span class="c"># OpenCode host (plugin)</span>
+  HTTP server on 127.0.0.1 → injects a turn into the active session
+       └─ agent receives the instruction + element metadata and acts</pre>
+    <div class="note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      <div>The plugin binds to <code>127.0.0.1</code> only. SSH provides the auth and encryption — nothing is exposed publicly, and nothing reaches any third-party server.</div>
+    </div>
+  </div>
+</section>
+
+<!-- INSTALL -->
+<section id="install">
+  <div class="wrap">
+    <p class="eyebrow">Install</p>
+    <h2>Four steps</h2>
+    <p class="lead">One command on the OpenCode host, load the extension in Chrome, open a tunnel if the agent is remote.</p>
+
+    <div class="steps">
+      <div class="step">
+        <h3>Add the plugin</h3>
+        <p>In your OpenCode config (<code>~/.config/opencode/opencode.json</code>) on the agent host:</p>
+        <pre>{
+  <span class="s">"plugin"</span>: [<span class="s">"opencode-browser-annotation-plugin"</span>]
+}</pre>
+        <p style="margin-top:12px">Restart OpenCode. The plugin serves <code>127.0.0.1:39517</code>. It also installs a
+          <code>browser-annotation</code> skill the agent auto-loads to interpret annotations.</p>
+      </div>
+
+      <div class="step">
+        <h3>Install the extension</h3>
+        <p>Get it from the Chrome Web Store, or load it unpacked for now:</p>
+        <pre><span class="c"># the extension/ dir ships with the npm package</span>
+node_modules/opencode-browser-annotation-plugin/extension</pre>
+        <p style="margin-top:12px">Open <code>chrome://extensions</code> → enable <b>Developer mode</b> → <b>Load unpacked</b> → select <code>extension/</code>.</p>
+      </div>
+
+      <div class="step">
+        <h3>Open a tunnel (if remote)</h3>
+        <p>Run on your desktop so the extension can reach the plugin over loopback:</p>
+        <pre><span class="k">ssh</span> -N -L 39517:127.0.0.1:39517 you@host</pre>
+        <p style="margin-top:12px">Same machine? No tunnel needed — <code>http://127.0.0.1:39517</code> already works.</p>
+      </div>
+
+      <div class="step">
+        <h3>Annotate</h3>
+        <p>Send one message in OpenCode so a session is active. Then on any page press
+          <kbd>Alt</kbd>+<kbd>A</kbd>, click an element, type your instruction, and <b>Send</b> —
+          or <b>Add to list</b> and batch several with <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCREENSHOTS -->
+<section id="shots">
+  <div class="wrap">
+    <p class="eyebrow">Screenshots</p>
+    <h2>The whole flow</h2>
+    <div class="gallery">
+      <div class="gcard">
+        <img src="./img/01-pick-hover.png" alt="Element picking with a highlight and hint bar" width="1280" height="800">
+        <div class="cap"><b>Pick.</b> Alt+A, hover to highlight — works inside shadow DOM.</div>
+      </div>
+      <div class="gcard">
+        <img src="./img/02-popup.png" alt="Annotation popup with an instruction typed in" width="1280" height="800">
+        <div class="cap"><b>Describe.</b> Type the change; Send or add to the list.</div>
+      </div>
+      <div class="gcard">
+        <img src="./img/03-sidebar.png" alt="Sidebar list with annotations and session picker" width="1280" height="800">
+        <div class="cap"><b>Batch &amp; target.</b> Review, pick the session, submit together.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>
+      <a href="https://github.com/caoool/opencode-browser-annotation-plugin">GitHub</a> &nbsp;·&nbsp;
+      <a href="https://www.npmjs.com/package/opencode-browser-annotation-plugin">npm</a> &nbsp;·&nbsp;
+      <a href="https://github.com/caoool/opencode-browser-annotation-plugin/issues">Support</a> &nbsp;·&nbsp;
+      <a href="https://opencode.ai">OpenCode</a>
+    </p>
+    <p class="privacy">Text and element metadata only — no screenshots, no vision. All data goes solely to your own
+      local OpenCode endpoint; nothing is collected by the developer or any third party. MIT licensed.</p>
+  </div>
+</footer>
+
+</body>
+</html>
