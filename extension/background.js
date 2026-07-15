@@ -68,7 +68,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const res = await fetch(`${endpoint}/annotations`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ extensionVersion: EXTENSION_VERSION, annotations }),
+          body: JSON.stringify({ extensionVersion: EXTENSION_VERSION, annotations, sessionID: msg.sessionID }),
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {

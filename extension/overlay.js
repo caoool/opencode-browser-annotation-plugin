@@ -20,10 +20,6 @@
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
     trash:
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
-    bolt:
-      '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
-    layers:
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
     send:
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
     plus:
@@ -71,11 +67,6 @@
     textarea.oc-ta::placeholder { color: #616678; }
     textarea.oc-ta:focus { outline: none; border-color: #4c8dff; box-shadow: 0 0 0 3px rgba(76,141,255,.18); }
 
-    .oc-modes { display: flex; gap: 6px; margin-top: 9px; }
-    .oc-mode { font: inherit; font-size: 12px; font-weight: 600; flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 8px; border-radius: 8px; cursor: pointer; background: rgba(255,255,255,.05); color: #9298aa; border: 1px solid transparent; }
-    .oc-mode svg { width: 13px; height: 13px; }
-    .oc-mode:hover { background: rgba(255,255,255,.09); color: #cfd3df; }
-    .oc-mode.sel { background: rgba(76,141,255,.16); color: #7aa9ff; border-color: rgba(76,141,255,.4); }
 
     .btn { font: inherit; font-weight: 600; font-size: 12.5px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 12px; border-radius: 9px; cursor: pointer; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #e6e8ee; transition: background .15s, transform .05s; }
     .btn svg { width: 15px; height: 15px; }
@@ -103,9 +94,11 @@
     .oc-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
     .oc-desc { font: 11px ui-monospace, monospace; color: #aeb4c6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 6px; flex: 1; }
     .oc-card .oc-text { font-size: 12.5px; color: #d4d7e0; white-space: pre-wrap; word-break: break-word; }
-    .oc-card .oc-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #9298aa; margin-top: 6px; }
-    .oc-card .oc-tag svg { width: 12px; height: 12px; }
     .oc-foot-bar { padding: 11px 12px; border-top: 1px solid rgba(255,255,255,.07); position: relative; }
+    .oc-target-row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+    .oc-target-label { font-size: 11px; font-weight: 600; color: #8b90a0; flex: none; }
+    .oc-select { flex: 1; min-width: 0; font: inherit; font-size: 12px; color: #e6e8ee; background: #14151b; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px 8px; }
+    .oc-select:focus { outline: none; border-color: #4c8dff; }
     .oc-status { font-size: 12px; margin-bottom: 9px; display: flex; align-items: center; gap: 8px; color: #9298aa; }
     .oc-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #5b6070; flex: none; }
     .oc-status.good::before { background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,.6); }
@@ -125,6 +118,24 @@
   let pending = []; // annotations added to the sidebar list
   let sidebarOpen = false;
   let statusTimer = null;
+  let sessions = []; // [{ id, title, updated }]
+  let targetSessionID = null; // user-chosen target; null = auto (last active)
+  let autoSessionID = null; // the plugin's last-active session
+
+  function effectiveTarget() {
+    return targetSessionID || autoSessionID;
+  }
+
+  function targetTitle() {
+    const id = effectiveTarget();
+    const s = sessions.find((x) => x.id === id);
+    return s ? s.title : null;
+  }
+
+  function targetLabel() {
+    const t = targetTitle();
+    return t ? ` · → ${escapeHtml(t)}` : "";
+  }
 
   // ---------- metadata ----------
 
@@ -297,7 +308,6 @@
   function openPopup(element, rect) {
     ensureUI();
     closePopup();
-    const state = { mode: "act" };
     const el = document.createElement("div");
     el.className = "oc-popup oc-surface";
     el.innerHTML = `
@@ -308,11 +318,7 @@
       </div>
       <div class="oc-body">
         <textarea class="oc-ta" rows="3" placeholder="Describe the change or ask about this element…"></textarea>
-        <div class="oc-modes">
-          <button class="oc-mode sel" data-mode="act">${ICON.bolt}<span>Act now</span></button>
-          <button class="oc-mode" data-mode="queue">${ICON.layers}<span>Queue</span></button>
-        </div>
-        <div class="oc-hintline">Cmd/Ctrl+Enter to send</div>
+        <div class="oc-hintline">Cmd/Ctrl+Enter to send${targetLabel()}</div>
       </div>
       <div class="oc-foot">
         <button class="btn oc-add">${ICON.plus}<span>Add to list</span></button>
@@ -326,13 +332,7 @@
     setTimeout(() => ta.focus(), 30);
 
     el.querySelector(".oc-x").addEventListener("click", closePopup);
-    el.querySelectorAll(".oc-mode").forEach((b) =>
-      b.addEventListener("click", () => {
-        state.mode = b.dataset.mode;
-        el.querySelectorAll(".oc-mode").forEach((x) => x.classList.toggle("sel", x === b));
-      }),
-    );
-    const build = () => ({ instruction: ta.value.trim(), mode: state.mode, page: { url: location.href, title: document.title }, element });
+    const build = () => ({ instruction: ta.value.trim(), page: { url: location.href, title: document.title }, element });
     el.querySelector(".oc-add").addEventListener("click", () => {
       if (!ta.value.trim()) return ta.focus();
       pending.push(build());
@@ -390,12 +390,19 @@
         </div>
         <div class="oc-list" id="oc-list"></div>
         <div class="oc-foot-bar">
+          <label class="oc-target-row">
+            <span class="oc-target-label">Session</span>
+            <select class="oc-select" id="oc-session"></select>
+          </label>
           <div class="oc-status" id="oc-status">…</div>
           <button class="btn primary oc-submit" id="oc-submit" disabled>${ICON.send}<span>Submit to agent</span></button>
           <div class="oc-toast" id="oc-toast"></div>
         </div>`;
       root.appendChild(sb);
       sb.querySelector("#oc-close").addEventListener("click", closeSidebar);
+      sb.querySelector("#oc-session").addEventListener("change", (e) => {
+        targetSessionID = e.target.value || null;
+      });
       sb.querySelector("#oc-submit").addEventListener("click", () => {
         submit(pending, false);
       });
@@ -443,15 +450,12 @@
     pending.forEach((a, i) => {
       const card = document.createElement("div");
       card.className = "oc-card";
-      const modeIcon = a.mode === "queue" ? ICON.layers : ICON.bolt;
-      const modeName = a.mode === "queue" ? "Queue" : "Act now";
       card.innerHTML = `
         <div class="oc-card-head">
           <span class="oc-desc" title="${escapeHtml(a.element.selector || "")}">${escapeHtml(descriptor(a.element))}</span>
           <button class="iconbtn oc-rm" data-i="${i}" title="Remove">${ICON.trash}</button>
         </div>
-        <div class="oc-text">${escapeHtml(a.instruction || "(no instruction)")}</div>
-        <div class="oc-tag">${modeIcon}<span>${modeName}</span></div>`;
+        <div class="oc-text">${escapeHtml(a.instruction || "(no instruction)")}</div>`;
       list.appendChild(card);
     });
     const btn = root.getElementById("oc-submit");
@@ -476,10 +480,12 @@
         return;
       }
       if (res.ok && res.data?.ok) {
-        if (res.data.activeSession) {
-          const q = res.data.queued ? ` · ${res.data.queued} queued` : "";
+        sessions = Array.isArray(res.data.sessions) ? res.data.sessions : [];
+        autoSessionID = res.data.sessionID || null;
+        renderSessions();
+        if (sessions.length || res.data.activeSession) {
           el.className = "oc-status good";
-          el.textContent = `Connected${q}`;
+          el.textContent = "Connected";
         } else {
           el.className = "oc-status warn";
           el.textContent = "Connected — send a message in OpenCode first";
@@ -489,6 +495,26 @@
         el.textContent = "Not connected — check the SSH tunnel";
       }
     });
+  }
+
+  function renderSessions() {
+    if (!root) return;
+    const sel = root.getElementById("oc-session");
+    if (!sel) return;
+    // If the chosen target vanished, fall back to auto.
+    if (targetSessionID && !sessions.some((s) => s.id === targetSessionID)) targetSessionID = null;
+    const current = effectiveTarget();
+    const opts = [`<option value="">Auto (last active)</option>`].concat(
+      sessions.map((s) => {
+        const active = s.id === autoSessionID ? " • active" : "";
+        const label = `${(s.title || s.id).slice(0, 40)}${active}`;
+        const selected = s.id === current ? " selected" : "";
+        return `<option value="${escapeHtml(s.id)}"${selected}>${escapeHtml(label)}</option>`;
+      }),
+    );
+    // Keep "Auto" selected when no explicit target.
+    sel.innerHTML = opts.join("");
+    if (!targetSessionID) sel.value = "";
   }
 
   function toast(text, bad) {
@@ -514,7 +540,8 @@
   function submit(annotations, quick) {
     if (!annotations.length) return;
     toast("Submitting…");
-    chrome.runtime.sendMessage({ type: "oc-submit", annotations }, (res) => {
+    const sessionID = effectiveTarget() || undefined;
+    chrome.runtime.sendMessage({ type: "oc-submit", annotations, sessionID }, (res) => {
       if (chrome.runtime.lastError || !res) {
         toast("Extension error", true);
         return;

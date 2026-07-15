@@ -9,9 +9,9 @@ import type { Plugin, PluginInput } from "@opencode-ai/plugin";
  * the browser runs on a separate desktop, the extension reaches this server over
  * an `ssh -L` local forward (desktop -> host).
  *
- * On receipt the plugin injects a new user turn into the most recently active
- * OpenCode session so the agent responds. Annotations may be acted on
- * immediately ("act") or queued and flushed with a later act ("queue").
+ * On receipt the plugin injects a new user turn into the chosen OpenCode session
+ * (the extension may target any session by id; otherwise the most recently
+ * active one) so the agent responds.
  *
  * Scope: text + element metadata only. No screenshots, no image/vision.
  */
@@ -38,17 +38,15 @@ interface ElementMeta {
   html?: string;
 }
 
-type AnnotationMode = "act" | "queue";
-
 interface Annotation {
   instruction?: string;
-  mode?: AnnotationMode;
   page?: { url?: string; title?: string };
   element?: ElementMeta;
 }
 
 interface SubmitPayload {
   annotations?: Annotation[];
+  sessionID?: string;
   extensionVersion?: string;
 }
 
@@ -170,14 +168,18 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
+interface SessionInfo {
+  id: string;
+  title: string;
+  updated: number;
+}
+
 export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: PluginInput) => {
   const host = envHost();
   const port = envPort();
 
   let activeSessionID: string | null = null;
-  let activeSessionTitle: string | null = null;
   let server: Server | null = null;
-  const queued: Annotation[] = [];
 
   const log = (level: "info" | "warn" | "error", message: string, extra?: Record<string, unknown>) => {
     void client.app
@@ -185,10 +187,29 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
       .catch(() => {});
   };
 
-  async function injectPrompt(annotations: Annotation[]): Promise<{ ok: boolean; error?: string }> {
+  /**
+   * All sessions live in this one OpenCode process, so the plugin can address
+   * any of them by id — a single HTTP port/tunnel does not limit targeting.
+   * Returns top-level sessions (no parentID), most-recently-updated first.
+   */
+  async function listSessions(): Promise<SessionInfo[]> {
+    try {
+      const res = (await client.session.list({ query: { directory } })) as unknown;
+      const rows: any[] = Array.isArray(res) ? res : Array.isArray((res as any)?.data) ? (res as any).data : [];
+      return rows
+        .filter((s) => s && typeof s.id === "string" && !s.parentID)
+        .map((s) => ({ id: s.id, title: typeof s.title === "string" ? s.title : s.id, updated: s.time?.updated ?? 0 }))
+        .sort((a, b) => b.updated - a.updated);
+    } catch (error) {
+      log("warn", `session.list failed: ${error instanceof Error ? error.message : "unknown"}`);
+      return [];
+    }
+  }
+
+  async function injectPrompt(sessionID: string, annotations: Annotation[]): Promise<{ ok: boolean; error?: string }> {
     try {
       await client.session.promptAsync({
-        path: { id: activeSessionID as string },
+        path: { id: sessionID },
         query: { directory },
         body: { parts: [{ type: "text", text: buildPrompt(annotations) }] },
       });
@@ -198,39 +219,28 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
     }
   }
 
-  /**
-   * Queue annotations are held until an "act" annotation arrives (or all-queue
-   * submits nothing yet). An act annotation flushes the queue plus itself.
-   */
   async function handleSubmit(
     annotations: Annotation[],
-  ): Promise<{ ok: boolean; error?: string; injected: number; queued: number; sessionID?: string }> {
-    if (!activeSessionID) {
+    requestedSessionID?: string,
+  ): Promise<{ ok: boolean; error?: string; injected: number; sessionID?: string }> {
+    // Prefer the explicitly targeted session; fall back to the last active one.
+    let targetID = requestedSessionID || activeSessionID;
+    if (requestedSessionID) {
+      const sessions = await listSessions();
+      if (!sessions.some((s) => s.id === requestedSessionID)) {
+        return { ok: false, error: "Target session no longer exists.", injected: 0 };
+      }
+    }
+    if (!targetID) {
       return {
         ok: false,
-        error: "No active OpenCode session yet. Send a message in OpenCode first.",
+        error: "No target session. Send a message in OpenCode first, or pick a session.",
         injected: 0,
-        queued: queued.length,
       };
     }
-
-    const toQueue = annotations.filter((a) => a.mode === "queue");
-    const toAct = annotations.filter((a) => a.mode !== "queue");
-    queued.push(...toQueue);
-
-    if (toAct.length === 0) {
-      return { ok: true, injected: 0, queued: queued.length, sessionID: activeSessionID };
-    }
-
-    const batch = [...queued, ...toAct];
-    queued.length = 0;
-    const result = await injectPrompt(batch);
-    if (!result.ok) {
-      // Re-queue so nothing is lost.
-      queued.unshift(...batch.filter((a) => a.mode === "queue"));
-      return { ok: false, error: result.error, injected: 0, queued: queued.length, sessionID: activeSessionID };
-    }
-    return { ok: true, injected: batch.length, queued: queued.length, sessionID: activeSessionID };
+    const result = await injectPrompt(targetID, annotations);
+    if (!result.ok) return { ok: false, error: result.error, injected: 0, sessionID: targetID };
+    return { ok: true, injected: annotations.length, sessionID: targetID };
   }
 
   function handle(req: IncomingMessage, res: ServerResponse): void {
@@ -239,14 +249,17 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
       return;
     }
     if (req.method === "GET" && req.url === "/status") {
-      sendJson(res, 200, {
-        ok: true,
-        activeSession: Boolean(activeSessionID),
-        sessionID: activeSessionID,
-        sessionTitle: activeSessionTitle,
-        queued: queued.length,
-        host,
-        port,
+      void listSessions().then((sessions) => {
+        const active = sessions.find((s) => s.id === activeSessionID);
+        sendJson(res, 200, {
+          ok: true,
+          activeSession: Boolean(activeSessionID),
+          sessionID: activeSessionID,
+          sessionTitle: active?.title ?? null,
+          sessions,
+          host,
+          port,
+        });
       });
       return;
     }
@@ -259,11 +272,9 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
             sendJson(res, 400, { ok: false, error: "No annotations in payload." });
             return;
           }
-          const result = await handleSubmit(annotations);
+          const result = await handleSubmit(annotations, payload.sessionID);
           if (result.ok) {
-            log("info", `Annotations: injected ${result.injected}, queued ${result.queued}`, {
-              sessionID: result.sessionID,
-            });
+            log("info", `Injected ${result.injected} annotation(s)`, { sessionID: result.sessionID });
             sendJson(res, 200, result);
           } else {
             log("warn", `Annotation submit failed: ${result.error}`);
@@ -304,16 +315,8 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
       if (input?.sessionID) activeSessionID = input.sessionID;
     },
     event: async ({ event }) => {
-      if (event.type === "session.updated") {
-        const info = event.properties.info;
-        if (info.id === activeSessionID && typeof info.title === "string") {
-          activeSessionTitle = info.title;
-        }
-      } else if (event.type === "session.deleted") {
-        if (event.properties.info.id === activeSessionID) {
-          activeSessionID = null;
-          activeSessionTitle = null;
-        }
+      if (event.type === "session.deleted") {
+        if (event.properties.info.id === activeSessionID) activeSessionID = null;
       }
     },
   };
