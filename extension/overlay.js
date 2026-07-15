@@ -355,9 +355,18 @@
     try {
       const tag = el.tagName.toLowerCase();
       const attrs = [];
+      const nameAttr = el.getAttribute("name") || "";
+      const typeAttr = el.getAttribute("type") || "";
+      // Redact the value= of any input whose name/type looks sensitive (CSRF
+      // tokens, passwords, hidden auth fields), regardless of input type.
+      const valueIsSecret = SECRET_ATTR.test(nameAttr) || /password|hidden/i.test(typeAttr);
       for (const a of Array.from(el.attributes || [])) {
+        // Skip class/style: class is already captured (cleaned) in `classes`,
+        // and inline style is noise. This avoids duplication and the ugly
+        // mid-class truncation.
+        if (a.name === "class" || a.name === "style") continue;
         let v = a.value;
-        if (SECRET_ATTR.test(a.name) || (a.name === "value" && /password|hidden/i.test(el.getAttribute("type") || ""))) {
+        if (SECRET_ATTR.test(a.name) || (a.name === "value" && valueIsSecret)) {
           v = "[redacted]";
         } else if (v && v.length > 120) {
           v = v.slice(0, 120) + "…";
@@ -365,7 +374,7 @@
         attrs.push(v === "" ? a.name : `${a.name}="${v}"`);
       }
       const open = `<${tag}${attrs.length ? " " + attrs.join(" ") : ""}>`;
-      return open.slice(0, 600);
+      return open;
     } catch {
       return undefined;
     }
@@ -395,6 +404,9 @@
       framework: fw ? fw.framework : undefined,
       html: safeOpenTag(el),
     };
+    // Drop the opening tag if it carries no attributes beyond the tag name
+    // (redundant with `tag` once class/style are excluded).
+    if (m.html && /^<[a-z0-9-]+>$/i.test(m.html)) delete m.html;
     for (const k of Object.keys(m)) if (m[k] === undefined) delete m[k];
     if (Array.isArray(m.ancestors) && m.ancestors.length === 0) delete m.ancestors;
     return m;
