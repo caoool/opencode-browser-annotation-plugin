@@ -204,18 +204,21 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
   }
 
   function start(): void {
+    if (server) return; // never double-listen (the plugin may init more than once)
     const s = createServer(handle);
+    server = s; // claim synchronously so a re-entrant start() is a no-op
     s.on("error", (error: NodeJS.ErrnoException) => {
-      if (error.code === "EADDRINUSE") {
-        log("error", `Port ${port} on ${host} is already in use; annotation server not started.`);
-      } else {
+      // Another instance already owns the port. Drop this half-open server so we
+      // don't leave a listener that resets connections without responding.
+      server = null;
+      s.close();
+      if (error.code !== "EADDRINUSE") {
         log("error", `Annotation server error: ${error.message}`);
       }
     });
     s.listen(port, host, () => {
       log("info", `Browser annotation server listening on http://${host}:${port}`);
     });
-    server = s;
   }
 
   start();
@@ -227,8 +230,6 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
     event: async ({ event }) => {
       if (event.type === "session.deleted") {
         if (event.properties.info.id === activeSessionID) activeSessionID = null;
-      } else if (event.type === "server.connected" && !server) {
-        start();
       }
     },
   };
