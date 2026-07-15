@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 
+
 /**
  * opencode-browser-annotation-plugin
  *
