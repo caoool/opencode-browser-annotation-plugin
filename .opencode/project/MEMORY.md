@@ -16,16 +16,9 @@ Durable, verified knowledge for the browser-annotation plugin.
 ## Publishing
 
 - Published to npm as `opencode-browser-annotation-plugin` (first version 0.1.0, 2026-07-15).
-- The user's npm account uses a passkey (WebAuthn), which cannot be completed from the headless server. The user must publish from their own desktop machine where the passkey lives. Give this exact command sequence when a publish is needed (bump the version in `package.json` first for a new release):
-
-  ```
-  git clone https://github.com/caoool/opencode-browser-annotation-plugin.git
-  cd opencode-browser-annotation-plugin
-  npm install
-  npm publish --access public
-  ```
-
-  `prepublishOnly` builds `dist/` automatically. `npm publish` opens the browser passkey prompt. For an update, run `npm version patch|minor|major` (or edit `package.json`) before `npm publish`. Alternatively use CI trusted publishing via `.github/workflows/publish.yml` on a GitHub release (OIDC, no passkey).
+- npm TRUSTED PUBLISHING is configured for this repo (set up by the user 2026-07-15). Publishing is done by CI via `.github/workflows/publish.yml`, which runs on a published GitHub release and uses OIDC (`id-token: write`, `npm publish --provenance`). No passkey or token is needed for CI publishes. This is the primary publish path.
+- To release a new version: bump `package.json` (`npm version patch|minor|major`), push, then create a GitHub release whose tag matches (e.g. `gh release create v0.1.1 --generate-notes`). The workflow publishes automatically. The agent CAN create the release with `gh`; verify the workflow run afterward.
+- The user's npm account uses a passkey (WebAuthn), so manual `npm publish` cannot be completed from the headless server — it needs the user's desktop. Prefer the CI/trusted-publishing path above instead of manual publish.
 
 ## Runtime notes
 
