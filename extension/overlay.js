@@ -139,6 +139,7 @@
   let sessions = []; // [{ id, title, updated }]
   let targetSessionID = null; // user-chosen target; null = auto (last active)
   let autoSessionID = null; // the plugin's last-active session
+  let lastStatusState = null; // "good" | "bad" | "checking" | null; avoids flicker
 
   // A content script keeps running after its extension is reloaded/updated, but
   // its chrome.* calls then throw "Extension context invalidated". Guard every
@@ -203,6 +204,25 @@
     return undefined;
   }
 
+  // Drop build-generated/hashed class names (CSS Modules, styled-components,
+  // Emotion, etc.). They change every build and don't map to source, so they are
+  // noise for locating code. Keep human-authored classes like "heading-element".
+  function isHashedClass(c) {
+    if (!c) return true;
+    if (/module__/i.test(c)) return true; // CSS Modules: Foo-module__Bar__hHXUL
+    if (/__[A-Za-z0-9]{4,}$/.test(c)) return true; // trailing __hash
+    if (/^css-[a-z0-9]{5,}$/i.test(c)) return true; // Emotion: css-1ab2c3
+    if (/^sc-[A-Za-z0-9]{5,}$/.test(c)) return true; // styled-components: sc-bdVaJa
+    if (/^[A-Za-z0-9]{7,}$/.test(c) && /[0-9]/.test(c) && /[A-Z]/.test(c)) return true; // mixed-case+digit opaque hash
+    return false;
+  }
+
+  function cleanClasses(list) {
+    if (!list || !list.length) return undefined;
+    const kept = list.filter((c) => !isHashedClass(c));
+    return kept.length ? kept : undefined;
+  }
+
   function cssPath(el) {
     if (!(el instanceof Element)) return "";
     if (el.id) return `#${CSS.escape(el.id)}`;
@@ -237,7 +257,8 @@
     else if (el.id) s += `#${el.id}`;
     const role = el.getAttribute && el.getAttribute("role");
     if (role) s += `[role=${role}]`;
-    if (el.classList && el.classList.length) s += "." + Array.from(el.classList).slice(0, 3).join(".");
+    const cls = cleanClasses(el.classList ? Array.from(el.classList) : []);
+    if (cls) s += "." + cls.slice(0, 3).join(".");
     return s;
   }
 
@@ -319,7 +340,6 @@
 
   function elementMeta(el, inShadow) {
     const r = el.getBoundingClientRect();
-    const classes = el.classList ? Array.from(el.classList) : [];
     const fw = frameworkComponents(el);
     const m = {
       selector: cssPath(el),
@@ -329,7 +349,7 @@
       testId: bestTestId(el),
       role: el.getAttribute("role") || undefined,
       ariaLabel: el.getAttribute("aria-label") || undefined,
-      classes: classes.length ? classes : undefined,
+      classes: cleanClasses(el.classList ? Array.from(el.classList) : []),
       text: (el.textContent || "").trim().slice(0, 500) || undefined,
       href: el.getAttribute("href") || undefined,
       src: el.getAttribute("src") || undefined,
@@ -371,18 +391,22 @@
             const pad = 6 * dpr;
             let sx = Math.max(0, rect.left * dpr - pad);
             let sy = Math.max(0, rect.top * dpr - pad);
-            let sw = Math.min(img.width - sx, rect.width * dpr + pad * 2);
-            let sh = Math.min(img.height - sy, rect.height * dpr + pad * 2);
+            const sw = Math.min(img.width - sx, rect.width * dpr + pad * 2);
+            const sh = Math.min(img.height - sy, rect.height * dpr + pad * 2);
             if (sw <= 0 || sh <= 0) return resolve(null);
-            // cap output size for a compact list thumbnail
-            const maxW = 300;
+            // Keep the crop at (up to) full captured resolution so it stays sharp
+            // on the sidebar's HiDPI display. Only downscale if it's very large,
+            // to keep the data URL reasonable.
+            const maxW = 900;
             const scale = Math.min(1, maxW / sw);
-            const cw = Math.round(sw * scale);
-            const ch = Math.round(sh * scale);
+            const cw = Math.max(1, Math.round(sw * scale));
+            const ch = Math.max(1, Math.round(sh * scale));
             const c = document.createElement("canvas");
             c.width = cw;
             c.height = ch;
             const ctx = c.getContext("2d");
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
             ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
             resolve(c.toDataURL("image/png"));
           } catch {
@@ -620,7 +644,7 @@
         </div>`;
       root.appendChild(sb);
       sb.querySelector("#oc-close").addEventListener("click", closeSidebar);
-      sb.querySelector("#oc-pick").addEventListener("click", () => startPicking());
+      sb.querySelector("#oc-pick").addEventListener("click", () => (picking ? stopPicking() : startPicking()));
       sb.querySelector("#oc-dd-btn").addEventListener("click", (e) => {
         e.stopPropagation();
         sb.querySelector("#oc-dd").classList.toggle("open");
@@ -654,6 +678,7 @@
       clearInterval(statusTimer);
       statusTimer = null;
     }
+    lastStatusState = null; // re-check cleanly on reopen
   }
 
   function toggleSidebar() {
@@ -693,27 +718,33 @@
 
   // ---------- status + submit ----------
 
+  // Apply a status only when it actually changes, so routine polls don't make
+  // the text flicker. Only the very first check shows "Checking…".
+  function setStatus(state, text) {
+    const el = root && root.getElementById("oc-status");
+    if (!el) return;
+    if (lastStatusState === state) return; // stable during polls
+    lastStatusState = state;
+    el.className = `oc-status ${state}`;
+    el.textContent = text;
+  }
+
   function refreshStatus() {
     if (!root) return;
-    const el = root.getElementById("oc-status");
-    if (!el) return;
-    el.className = "oc-status checking";
-    el.textContent = "Checking connection…";
+    if (lastStatusState === null) setStatus("checking", "Checking connection…");
     sendMsg({ type: "oc-status" }, (res) => {
       if (!res) {
-        el.className = "oc-status bad";
-        el.textContent = "Extension error";
+        setStatus("bad", "Extension error");
         return;
       }
       if (res.ok && res.data?.ok) {
+        // Session list updates every poll; the status text stays stable.
         sessions = Array.isArray(res.data.sessions) ? res.data.sessions : [];
         autoSessionID = res.data.sessionID || null;
         renderSessions();
-        el.className = "oc-status good";
-        el.textContent = "Connected";
+        setStatus("good", "Connected");
       } else {
-        el.className = "oc-status bad";
-        el.textContent = "Not connected — check the SSH tunnel";
+        setStatus("bad", "Not connected — check the SSH tunnel");
       }
     });
   }
