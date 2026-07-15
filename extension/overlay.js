@@ -338,6 +338,39 @@
     return undefined;
   }
 
+  // Collapse runs of whitespace to single spaces and trim, so a container's
+  // textContent doesn't arrive as a wall of newlines.
+  function cleanText(s) {
+    const t = (s || "").replace(/\s+/g, " ").trim();
+    return t ? t.slice(0, 300) : undefined;
+  }
+
+  // Names/attributes whose values may be secrets and must never be sent.
+  const SECRET_ATTR = /(token|csrf|authenticity|secret|api[-_]?key|password|session|auth|nonce|signature)/i;
+
+  // For the outer HTML, send only the element's own opening tag (not the whole
+  // subtree), with secret-looking attribute values redacted. This avoids leaking
+  // CSRF tokens / API keys and keeps the payload small for large containers.
+  function safeOpenTag(el) {
+    try {
+      const tag = el.tagName.toLowerCase();
+      const attrs = [];
+      for (const a of Array.from(el.attributes || [])) {
+        let v = a.value;
+        if (SECRET_ATTR.test(a.name) || (a.name === "value" && /password|hidden/i.test(el.getAttribute("type") || ""))) {
+          v = "[redacted]";
+        } else if (v && v.length > 120) {
+          v = v.slice(0, 120) + "…";
+        }
+        attrs.push(v === "" ? a.name : `${a.name}="${v}"`);
+      }
+      const open = `<${tag}${attrs.length ? " " + attrs.join(" ") : ""}>`;
+      return open.slice(0, 600);
+    } catch {
+      return undefined;
+    }
+  }
+
   function elementMeta(el, inShadow) {
     const r = el.getBoundingClientRect();
     const fw = frameworkComponents(el);
@@ -350,7 +383,7 @@
       role: el.getAttribute("role") || undefined,
       ariaLabel: el.getAttribute("aria-label") || undefined,
       classes: cleanClasses(el.classList ? Array.from(el.classList) : []),
-      text: (el.textContent || "").trim().slice(0, 500) || undefined,
+      text: cleanText(el.textContent),
       href: el.getAttribute("href") || undefined,
       src: el.getAttribute("src") || undefined,
       bounds: { x: r.left, y: r.top, width: r.width, height: r.height },
@@ -360,7 +393,7 @@
       landmark: nearestLandmark(el),
       componentPath: fw ? fw.path : undefined,
       framework: fw ? fw.framework : undefined,
-      html: (el.outerHTML || "").slice(0, 800),
+      html: safeOpenTag(el),
     };
     for (const k of Object.keys(m)) if (m[k] === undefined) delete m[k];
     if (Array.isArray(m.ancestors) && m.ancestors.length === 0) delete m.ancestors;

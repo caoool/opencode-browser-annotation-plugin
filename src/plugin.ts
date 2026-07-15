@@ -98,7 +98,7 @@ function formatElement(el: ElementMeta | undefined): string {
     const b = el.bounds;
     lines.push(`  viewport bounds: ${Math.round(b.width)}×${Math.round(b.height)} at (${Math.round(b.x)}, ${Math.round(b.y)})`);
   }
-  if (el.html) lines.push(`  outer html: ${truncate(el.html.trim(), 500)}`);
+  if (el.html) lines.push(`  opening tag: ${truncate(el.html.trim(), 500)}`);
   return lines.join("\n");
 }
 
@@ -118,24 +118,18 @@ function annotationBlock(a: Annotation, index: number, total: number): string {
 }
 
 function buildPrompt(annotations: Annotation[]): string {
+  // The static interpretation rules live in the `browser-annotation` skill, not
+  // in every payload. The header marks this as a browser annotation and tells
+  // the agent to use that skill, so the rules are stated once (in the skill),
+  // never repeated per message.
   const header =
     annotations.length > 1
-      ? `The user made ${annotations.length} annotations in the browser. Address each one.`
-      : "The user made an annotation in the browser.";
+      ? `Browser annotations (${annotations.length}) — handle using the \`browser-annotation\` skill. Address each one.`
+      : "Browser annotation — handle using the `browser-annotation` skill.";
 
   const blocks = annotations.map((a, i) => annotationBlock(a, i, annotations.length));
 
-  return [
-    header,
-    "",
-    ...blocks,
-    "",
-    "Guidance:",
-    "- Locate the code for each element using the most stable identifier available: framework component path first if given, then data-testid, id, name, role, then the ancestor chain and nearest region to disambiguate, then unique class or text. Treat the CSS path and viewport bounds as weak hints only.",
-    "- Use the ancestors and nearest region to find the right component/file when the element itself is generic (e.g. a bare button that appears many times).",
-    "- Confirm the element actually exists in this codebase before editing; if you cannot find it, say so instead of guessing.",
-    "- No screenshot is attached; reason from the metadata and the code.",
-  ].join("\n");
+  return [header, "", ...blocks].join("\n");
 }
 
 async function readJsonBody(req: IncomingMessage, limitBytes = 2_000_000): Promise<unknown> {
