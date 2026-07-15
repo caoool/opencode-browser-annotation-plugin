@@ -5,9 +5,9 @@
 //   Alt+A        -> start element picking (background sends "oc-pick")
 //   Alt+Shift+A  -> toggle the list sidebar ("oc-toggle-sidebar")
 // Picking an element opens a floating popup near it (onUI-style): type an
-// instruction, choose Act/Queue, then Add (to the sidebar list) or Send (submit
-// immediately). The sidebar is a floating rounded card holding pending
-// annotations for batch submit.
+// instruction, then Add (to the sidebar list) or Send (submit immediately). The
+// sidebar is a floating rounded card holding pending annotations for batch
+// submit, with a session-target picker.
 
 (() => {
   if (window.__ocAnnotationInjected) return;
@@ -95,11 +95,11 @@
     .oc-desc { font: 11px ui-monospace, monospace; color: #aeb4c6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 6px; flex: 1; }
     .oc-card .oc-text { font-size: 12.5px; color: #d4d7e0; white-space: pre-wrap; word-break: break-word; }
     .oc-foot-bar { padding: 11px 12px; border-top: 1px solid rgba(255,255,255,.07); position: relative; }
-    .oc-target-row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
-    .oc-target-label { font-size: 11px; font-weight: 600; color: #8b90a0; flex: none; }
-    .oc-select { flex: 1; min-width: 0; font: inherit; font-size: 12px; color: #e6e8ee; background: #14151b; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px 8px; }
+    .oc-status-row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+    .oc-select { flex: none; max-width: 150px; font: inherit; font-size: 11.5px; color: #cfd3df; background: #14151b; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 4px 6px; }
     .oc-select:focus { outline: none; border-color: #4c8dff; }
-    .oc-status { font-size: 12px; margin-bottom: 9px; display: flex; align-items: center; gap: 8px; color: #9298aa; }
+    .oc-status { flex: 1; min-width: 0; font-size: 12px; display: flex; align-items: center; gap: 8px; color: #9298aa; }
+    .oc-status span, .oc-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .oc-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #5b6070; flex: none; }
     .oc-status.good::before { background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,.6); }
     .oc-status.warn::before { background: #fbbf24; } .oc-status.bad::before { background: #f87171; } .oc-status.checking::before { background: #60a5fa; }
@@ -121,6 +121,44 @@
   let sessions = []; // [{ id, title, updated }]
   let targetSessionID = null; // user-chosen target; null = auto (last active)
   let autoSessionID = null; // the plugin's last-active session
+
+  // A content script keeps running after its extension is reloaded/updated, but
+  // its chrome.* calls then throw "Extension context invalidated". Guard every
+  // message so a stale overlay fails quietly instead of spamming errors, and
+  // tear itself down once the context is gone.
+  function contextAlive() {
+    try {
+      return Boolean(chrome.runtime && chrome.runtime.id);
+    } catch {
+      return false;
+    }
+  }
+
+  function sendMsg(payload, cb) {
+    if (!contextAlive()) {
+      teardown();
+      return;
+    }
+    try {
+      chrome.runtime.sendMessage(payload, (res) => {
+        if (chrome.runtime.lastError) {
+          cb(null);
+          return;
+        }
+        cb(res);
+      });
+    } catch {
+      teardown();
+    }
+  }
+
+  function teardown() {
+    if (statusTimer) {
+      clearInterval(statusTimer);
+      statusTimer = null;
+    }
+    if (host) host.style.display = "none";
+  }
 
   function effectiveTarget() {
     return targetSessionID || autoSessionID;
@@ -277,6 +315,19 @@
     document.addEventListener("mousemove", onMove, true);
     document.addEventListener("click", onClick, true);
     document.addEventListener("keydown", onKey, true);
+
+    // Keep keystrokes typed inside our UI from reaching the page's global
+    // hotkeys (e.g. GitHub's "s"/"f"). Capture key events at the document before
+    // page listeners run; if the event originates inside our shadow UI, stop it
+    // (Esc is handled by onKey above, which runs first in capture order here).
+    const contain = (e) => {
+      if (e.composedPath && e.composedPath().includes(host)) {
+        e.stopImmediatePropagation();
+      }
+    };
+    for (const type of ["keydown", "keyup", "keypress"]) {
+      document.addEventListener(type, contain, true);
+    }
   }
 
   function startPicking() {
@@ -386,20 +437,21 @@
           <span class="logo">${ICON.logo}</span>
           <span class="title">Annotations</span>
           <span class="badge" id="oc-badge">0</span>
+          <button class="iconbtn" id="oc-pick" title="Select element (Alt+A)">${ICON.target}</button>
           <button class="iconbtn" id="oc-close" title="Close (Alt+Shift+A)">${ICON.close}</button>
         </div>
         <div class="oc-list" id="oc-list"></div>
         <div class="oc-foot-bar">
-          <label class="oc-target-row">
-            <span class="oc-target-label">Session</span>
-            <select class="oc-select" id="oc-session"></select>
-          </label>
-          <div class="oc-status" id="oc-status">…</div>
+          <div class="oc-status-row">
+            <div class="oc-status" id="oc-status">…</div>
+            <select class="oc-select" id="oc-session" title="Target session"></select>
+          </div>
           <button class="btn primary oc-submit" id="oc-submit" disabled>${ICON.send}<span>Submit to agent</span></button>
           <div class="oc-toast" id="oc-toast"></div>
         </div>`;
       root.appendChild(sb);
       sb.querySelector("#oc-close").addEventListener("click", closeSidebar);
+      sb.querySelector("#oc-pick").addEventListener("click", () => startPicking());
       sb.querySelector("#oc-session").addEventListener("change", (e) => {
         targetSessionID = e.target.value || null;
       });
@@ -473,8 +525,8 @@
     if (!el) return;
     el.className = "oc-status checking";
     el.textContent = "Checking connection…";
-    chrome.runtime.sendMessage({ type: "oc-status" }, (res) => {
-      if (chrome.runtime.lastError || !res) {
+    sendMsg({ type: "oc-status" }, (res) => {
+      if (!res) {
         el.className = "oc-status bad";
         el.textContent = "Extension error";
         return;
@@ -541,16 +593,13 @@
     if (!annotations.length) return;
     toast("Submitting…");
     const sessionID = effectiveTarget() || undefined;
-    chrome.runtime.sendMessage({ type: "oc-submit", annotations, sessionID }, (res) => {
-      if (chrome.runtime.lastError || !res) {
+    sendMsg({ type: "oc-submit", annotations, sessionID }, (res) => {
+      if (!res) {
         toast("Extension error", true);
         return;
       }
       if (res.ok) {
-        const parts = [];
-        if (res.injected) parts.push(`${res.injected} sent`);
-        if (res.queued) parts.push(`${res.queued} queued`);
-        toast(parts.length ? parts.join(", ") : "Submitted");
+        toast(res.injected ? `${res.injected} sent to agent` : "Submitted");
         if (!quick) {
           pending = [];
           renderCards();
