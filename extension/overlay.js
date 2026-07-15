@@ -26,6 +26,8 @@
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     logo:
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0H5a2 2 0 0 1-2-2v-4m6 6h10a2 2 0 0 0 2-2v-4"/></svg>',
+    caret:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
   };
 
   const STYLE = `
@@ -58,6 +60,8 @@
     .iconbtn { display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: #8b90a0; cursor: pointer; width: 28px; height: 28px; border-radius: 8px; padding: 0; }
     .iconbtn svg { width: 15px; height: 15px; }
     .iconbtn:hover { background: rgba(255,255,255,.08); color: #e6e8ee; }
+    .iconbtn.active { background: #3f7dff; color: #fff; box-shadow: 0 0 0 3px rgba(63,125,255,.28); }
+    .iconbtn.active:hover { background: #3670f0; color: #fff; }
 
     textarea.oc-ta {
       width: 100%; resize: vertical; min-height: 62px; font: inherit;
@@ -90,20 +94,34 @@
     .oc-list::-webkit-scrollbar { width: 10px; }
     .oc-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
     .oc-empty { color: #71768a; font-size: 12.5px; padding: 24px 8px; text-align: center; line-height: 1.6; }
-    .oc-card { background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); border-radius: 11px; padding: 9px 10px; }
-    .oc-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-    .oc-desc { font: 11px ui-monospace, monospace; color: #aeb4c6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 6px; flex: 1; }
+    .oc-card { position: relative; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); border-radius: 11px; padding: 9px 10px; }
+    .oc-card .oc-rm { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; }
+    .oc-card .oc-rm svg { width: 13px; height: 13px; }
+    .oc-thumb { width: 100%; height: 96px; object-fit: cover; object-position: top left; background: #0e0f14; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; display: block; margin-bottom: 8px; }
+    .oc-desc { font: 11px ui-monospace, monospace; color: #aeb4c6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 6px; display: inline-block; max-width: calc(100% - 30px); margin-bottom: 6px; }
     .oc-card .oc-text { font-size: 12.5px; color: #d4d7e0; white-space: pre-wrap; word-break: break-word; }
-    .oc-foot-bar { padding: 11px 12px; border-top: 1px solid rgba(255,255,255,.07); position: relative; }
-    .oc-status-row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
-    .oc-select { flex: none; max-width: 150px; font: inherit; font-size: 11.5px; color: #cfd3df; background: #14151b; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 4px 6px; }
-    .oc-select:focus { outline: none; border-color: #4c8dff; }
-    .oc-status { flex: 1; min-width: 0; font-size: 12px; display: flex; align-items: center; gap: 8px; color: #9298aa; }
-    .oc-status span, .oc-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .oc-foot-bar { padding: 12px; border-top: 1px solid rgba(255,255,255,.07); position: relative; }
+    .oc-status-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .oc-status { flex: 1; min-width: 0; font-size: 12px; display: flex; align-items: center; gap: 8px; color: #9298aa; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .oc-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #5b6070; flex: none; }
     .oc-status.good::before { background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,.6); }
     .oc-status.warn::before { background: #fbbf24; } .oc-status.bad::before { background: #f87171; } .oc-status.checking::before { background: #60a5fa; }
-    .oc-status.good { color: #34d399; } .oc-status.warn { color: #fbbf24; } .oc-status.bad { color: #f87171; }
+    .oc-status.good { color: #34d399; } .oc-status.warn { color: #fbbf24; } .oc-status.bad { color: #f87171; } .oc-status.checking { color: #93b4ff; }
+
+    /* custom session dropdown (opens upward) */
+    .oc-dd { position: relative; flex: none; width: 176px; }
+    .oc-dd-btn { width: 100%; display: flex; align-items: center; gap: 6px; font: inherit; font-size: 11.5px; color: #cfd3df; background: #14151b; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px 8px; cursor: pointer; }
+    .oc-dd-btn:hover { border-color: rgba(255,255,255,.22); }
+    .oc-dd-btn .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+    .oc-dd-btn .car { width: 12px; height: 12px; flex: none; transition: transform .15s; }
+    .oc-dd.open .oc-dd-btn .car { transform: rotate(180deg); }
+    .oc-dd-menu { position: absolute; bottom: calc(100% + 6px); right: 0; left: 0; max-height: 240px; overflow-y: auto; background: #1b1d25; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; box-shadow: 0 -12px 34px rgba(0,0,0,.5); padding: 5px; display: none; }
+    .oc-dd.open .oc-dd-menu { display: block; }
+    .oc-dd-opt { font-size: 12px; color: #cfd3df; padding: 7px 9px; border-radius: 7px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .oc-dd-opt:hover { background: rgba(255,255,255,.08); }
+    .oc-dd-opt.sel { background: rgba(76,141,255,.16); color: #7aa9ff; }
+    .oc-dd-menu::-webkit-scrollbar { width: 8px; }
+    .oc-dd-menu::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 6px; }
     .oc-submit { width: 100%; }
     .oc-toast { position: absolute; left: 12px; right: 12px; bottom: 58px; background: #0e0f14; color: #fff; font-size: 12.5px; padding: 9px 12px; border-radius: 9px; opacity: 0; transform: translateY(6px); transition: opacity .2s, transform .2s; pointer-events: none; box-shadow: 0 10px 30px rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.08); }
     .oc-toast.show { opacity: 1; transform: translateY(0); }
@@ -244,6 +262,44 @@
     return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   }
 
+  // Capture a thumbnail of the selected element for the SIDEBAR LIST ONLY.
+  // Never sent to the plugin/agent (stripped before submit). Best-effort: on any
+  // failure we simply omit the thumbnail.
+  function captureThumb(rect) {
+    return new Promise((resolve) => {
+      sendMsg({ type: "oc-capture" }, (res) => {
+        if (!res || !res.ok || !res.dataUrl) return resolve(null);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const dpr = window.devicePixelRatio || 1;
+            const pad = 6 * dpr;
+            let sx = Math.max(0, rect.left * dpr - pad);
+            let sy = Math.max(0, rect.top * dpr - pad);
+            let sw = Math.min(img.width - sx, rect.width * dpr + pad * 2);
+            let sh = Math.min(img.height - sy, rect.height * dpr + pad * 2);
+            if (sw <= 0 || sh <= 0) return resolve(null);
+            // cap output size for a compact list thumbnail
+            const maxW = 300;
+            const scale = Math.min(1, maxW / sw);
+            const cw = Math.round(sw * scale);
+            const ch = Math.round(sh * scale);
+            const c = document.createElement("canvas");
+            c.width = cw;
+            c.height = ch;
+            const ctx = c.getContext("2d");
+            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+            resolve(c.toDataURL("image/png"));
+          } catch {
+            resolve(null);
+          }
+        };
+        img.onerror = () => resolve(null);
+        img.src = res.dataUrl;
+      });
+    });
+  }
+
   // ---------- picking ----------
 
   function pickTarget(e) {
@@ -282,8 +338,13 @@
     e.stopPropagation();
     e.stopImmediatePropagation();
     const rect = hit.el.getBoundingClientRect();
+    const meta = elementMeta(hit.el, hit.inShadow);
     stopPicking();
-    openPopup(elementMeta(hit.el, hit.inShadow), rect);
+    // Capture the thumbnail while the element is still unobscured (before the
+    // popup is drawn), then open the popup. Best-effort; thumb may be null.
+    requestAnimationFrame(() => {
+      captureThumb(rect).then((thumb) => openPopup(meta, rect, thumb));
+    });
   }
 
   function onKey(e) {
@@ -330,12 +391,18 @@
     }
   }
 
+  function setPickActive(on) {
+    const btn = root && root.getElementById("oc-pick");
+    if (btn) btn.classList.toggle("active", on);
+  }
+
   function startPicking() {
     ensureUI();
     closePopup();
     picking = true;
     document.documentElement.style.cursor = "crosshair";
     root.getElementById("oc-hint").style.display = "flex";
+    setPickActive(true);
   }
 
   function stopPicking() {
@@ -344,6 +411,7 @@
     if (root) {
       hl().style.display = "none";
       root.getElementById("oc-hint").style.display = "none";
+      setPickActive(false);
     }
   }
 
@@ -356,7 +424,7 @@
     }
   }
 
-  function openPopup(element, rect) {
+  function openPopup(element, rect, thumb) {
     ensureUI();
     closePopup();
     const el = document.createElement("div");
@@ -383,7 +451,7 @@
     setTimeout(() => ta.focus(), 30);
 
     el.querySelector(".oc-x").addEventListener("click", closePopup);
-    const build = () => ({ instruction: ta.value.trim(), page: { url: location.href, title: document.title }, element });
+    const build = () => ({ instruction: ta.value.trim(), page: { url: location.href, title: document.title }, element, thumb });
     el.querySelector(".oc-add").addEventListener("click", () => {
       if (!ta.value.trim()) return ta.focus();
       pending.push(build());
@@ -444,7 +512,13 @@
         <div class="oc-foot-bar">
           <div class="oc-status-row">
             <div class="oc-status" id="oc-status">…</div>
-            <select class="oc-select" id="oc-session" title="Target session"></select>
+            <div class="oc-dd" id="oc-dd">
+              <button class="oc-dd-btn" id="oc-dd-btn" title="Target session">
+                <span class="lbl" id="oc-dd-lbl">Auto (last active)</span>
+                <span class="car">${ICON.caret}</span>
+              </button>
+              <div class="oc-dd-menu" id="oc-dd-menu"></div>
+            </div>
           </div>
           <button class="btn primary oc-submit" id="oc-submit" disabled>${ICON.send}<span>Submit to agent</span></button>
           <div class="oc-toast" id="oc-toast"></div>
@@ -452,8 +526,13 @@
       root.appendChild(sb);
       sb.querySelector("#oc-close").addEventListener("click", closeSidebar);
       sb.querySelector("#oc-pick").addEventListener("click", () => startPicking());
-      sb.querySelector("#oc-session").addEventListener("change", (e) => {
-        targetSessionID = e.target.value || null;
+      sb.querySelector("#oc-dd-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        sb.querySelector("#oc-dd").classList.toggle("open");
+      });
+      root.addEventListener("click", (e) => {
+        const dd = sb.querySelector("#oc-dd");
+        if (dd && !dd.contains(e.target)) dd.classList.remove("open");
       });
       sb.querySelector("#oc-submit").addEventListener("click", () => {
         submit(pending, false);
@@ -502,11 +581,11 @@
     pending.forEach((a, i) => {
       const card = document.createElement("div");
       card.className = "oc-card";
+      const thumb = a.thumb ? `<img class="oc-thumb" src="${a.thumb}" alt="">` : "";
       card.innerHTML = `
-        <div class="oc-card-head">
-          <span class="oc-desc" title="${escapeHtml(a.element.selector || "")}">${escapeHtml(descriptor(a.element))}</span>
-          <button class="iconbtn oc-rm" data-i="${i}" title="Remove">${ICON.trash}</button>
-        </div>
+        <button class="iconbtn oc-rm" data-i="${i}" title="Remove">${ICON.trash}</button>
+        ${thumb}
+        <span class="oc-desc" title="${escapeHtml(a.element.selector || "")}">${escapeHtml(descriptor(a.element))}</span>
         <div class="oc-text">${escapeHtml(a.instruction || "(no instruction)")}</div>`;
       list.appendChild(card);
     });
@@ -535,13 +614,8 @@
         sessions = Array.isArray(res.data.sessions) ? res.data.sessions : [];
         autoSessionID = res.data.sessionID || null;
         renderSessions();
-        if (sessions.length || res.data.activeSession) {
-          el.className = "oc-status good";
-          el.textContent = "Connected";
-        } else {
-          el.className = "oc-status warn";
-          el.textContent = "Connected — send a message in OpenCode first";
-        }
+        el.className = "oc-status good";
+        el.textContent = "Connected";
       } else {
         el.className = "oc-status bad";
         el.textContent = "Not connected — check the SSH tunnel";
@@ -551,22 +625,33 @@
 
   function renderSessions() {
     if (!root) return;
-    const sel = root.getElementById("oc-session");
-    if (!sel) return;
+    const menu = root.getElementById("oc-dd-menu");
+    const lbl = root.getElementById("oc-dd-lbl");
+    if (!menu || !lbl) return;
     // If the chosen target vanished, fall back to auto.
     if (targetSessionID && !sessions.some((s) => s.id === targetSessionID)) targetSessionID = null;
     const current = effectiveTarget();
-    const opts = [`<option value="">Auto (last active)</option>`].concat(
-      sessions.map((s) => {
-        const active = s.id === autoSessionID ? " • active" : "";
-        const label = `${(s.title || s.id).slice(0, 40)}${active}`;
-        const selected = s.id === current ? " selected" : "";
-        return `<option value="${escapeHtml(s.id)}"${selected}>${escapeHtml(label)}</option>`;
-      }),
+
+    const rows = [{ id: "", title: "Auto (last active)" }].concat(
+      sessions.map((s) => ({ id: s.id, title: `${s.title || s.id}${s.id === autoSessionID ? " • active" : ""}` })),
     );
-    // Keep "Auto" selected when no explicit target.
-    sel.innerHTML = opts.join("");
-    if (!targetSessionID) sel.value = "";
+    menu.innerHTML = rows
+      .map((r) => {
+        const selCls = (r.id || null) === targetSessionID ? " sel" : "";
+        return `<div class="oc-dd-opt${selCls}" data-id="${escapeHtml(r.id)}" title="${escapeHtml(r.title)}">${escapeHtml(r.title)}</div>`;
+      })
+      .join("");
+    menu.querySelectorAll(".oc-dd-opt").forEach((opt) => {
+      opt.addEventListener("click", () => {
+        targetSessionID = opt.dataset.id || null;
+        root.getElementById("oc-dd").classList.remove("open");
+        renderSessions();
+      });
+    });
+
+    // Button label reflects the effective target.
+    const chosen = sessions.find((s) => s.id === current);
+    lbl.textContent = targetSessionID && chosen ? chosen.title : "Auto (last active)";
   }
 
   function toast(text, bad) {
@@ -593,7 +678,9 @@
     if (!annotations.length) return;
     toast("Submitting…");
     const sessionID = effectiveTarget() || undefined;
-    sendMsg({ type: "oc-submit", annotations, sessionID }, (res) => {
+    // Strip the local-only thumbnail; the agent receives text + metadata only.
+    const clean = annotations.map(({ thumb, ...rest }) => rest);
+    sendMsg({ type: "oc-submit", annotations: clean, sessionID }, (res) => {
       if (!res) {
         toast("Extension error", true);
         return;

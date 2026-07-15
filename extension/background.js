@@ -43,8 +43,22 @@ chrome.action.onClicked.addListener((tab) => {
   void sendToOverlay(tab, "oc-toggle-sidebar");
 });
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
+    if (msg?.type === "oc-capture") {
+      // Capture the visible tab for the extension's own thumbnail preview only.
+      // This image is never sent to the plugin/agent; the content script crops
+      // it to the element and keeps it local to the sidebar UI.
+      try {
+        const windowId = sender?.tab?.windowId;
+        const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+        sendResponse({ ok: true, dataUrl });
+      } catch (error) {
+        sendResponse({ ok: false, error: error?.message || "capture failed" });
+      }
+      return;
+    }
+
     if (msg?.type === "oc-status") {
       try {
         const endpoint = await getEndpoint();
