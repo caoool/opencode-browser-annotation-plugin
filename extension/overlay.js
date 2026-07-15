@@ -1,23 +1,21 @@
-// Overlay content script: a picking layer plus a right sidebar, rendered inside
-// a shadow root so the host page's CSS cannot interfere and ours cannot leak.
-// Toggled via Alt+A (background command) or the toolbar icon.
+// Overlay content script. All UI lives inside one shadow root so host-page CSS
+// cannot interfere and ours cannot leak. Nothing pushes the page.
 //
-// Flow: pick an element (hover highlight + click, shadow-DOM aware via
-// composedPath) -> type an instruction in a card -> choose Act/Queue ->
-// Submit sends all cards to the background worker, which POSTs to the plugin.
+// Interactions:
+//   Alt+A        -> start element picking (background sends "oc-pick")
+//   Alt+Shift+A  -> toggle the list sidebar ("oc-toggle-sidebar")
+// Picking an element opens a floating popup near it (onUI-style): type an
+// instruction, choose Act/Queue, then Add (to the sidebar list) or Send (submit
+// immediately). The sidebar is a floating rounded card holding pending
+// annotations for batch submit.
 
 (() => {
-  if (window.__ocAnnotationInjected) {
-    window.dispatchEvent(new CustomEvent("oc-annotation-toggle"));
-    return;
-  }
+  if (window.__ocAnnotationInjected) return;
   window.__ocAnnotationInjected = true;
-
-  const SIDEBAR_W = 348;
 
   const ICON = {
     target:
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/></svg>',
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/></svg>',
     close:
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
     trash:
@@ -28,6 +26,8 @@
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
     send:
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+    plus:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     logo:
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0H5a2 2 0 0 1-2-2v-4m6 6h10a2 2 0 0 0 2-2v-4"/></svg>',
   };
@@ -35,126 +35,102 @@
   const STYLE = `
     :host { all: initial; }
     * { box-sizing: border-box; }
-    #oc-layer { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
-    #oc-highlight {
-      position: fixed; display: none; pointer-events: none; z-index: 2;
+    .oc-hl {
+      position: fixed; display: none; pointer-events: none; z-index: 2147483644;
       border: 2px solid #4c8dff; background: rgba(76,141,255,0.14);
-      border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.4);
-      transition: all .04s ease-out;
+      border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.4); transition: all .04s ease-out;
     }
-    #oc-hint {
-      position: fixed; top: 18px; left: calc(50% - ${SIDEBAR_W / 2}px);
-      transform: translateX(-50%); z-index: 3;
+    .oc-hint {
+      position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 2147483646;
       display: none; gap: 10px; align-items: center; pointer-events: none;
       font: 13px system-ui, sans-serif; color: #e6e8ee;
-      background: rgba(20,22,30,.94); padding: 8px 14px; border-radius: 999px;
-      box-shadow: 0 8px 24px rgba(0,0,0,.4); border: 1px solid rgba(255,255,255,.08);
+      background: rgba(18,20,28,.95); padding: 8px 14px; border-radius: 999px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.08);
     }
-    #oc-hint .key { font-size: 11px; background: rgba(255,255,255,.14); padding: 2px 7px; border-radius: 5px; }
+    .oc-hint .key { font-size: 11px; background: rgba(255,255,255,.14); padding: 2px 7px; border-radius: 5px; }
 
-    #oc-sidebar {
-      position: fixed; top: 0; right: 0; height: 100vh; width: ${SIDEBAR_W}px;
-      pointer-events: auto; display: flex; flex-direction: column; z-index: 4;
-      background: #16171d; color: #e6e8ee;
+    /* shared surface */
+    .oc-surface {
+      background: rgba(20,22,30,.98); color: #e6e8ee; border: 1px solid rgba(255,255,255,.1);
+      border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.5);
       font: 13.5px/1.5 system-ui, -apple-system, sans-serif;
-      border-left: 1px solid rgba(255,255,255,.08);
-      box-shadow: -12px 0 40px rgba(0,0,0,.45);
     }
-    #oc-sidebar header {
-      display: flex; align-items: center; gap: 9px;
-      padding: 14px 14px; border-bottom: 1px solid rgba(255,255,255,.07);
-    }
-    #oc-sidebar header .logo { width: 18px; height: 18px; color: #4c8dff; flex: none; }
-    #oc-sidebar header .title { font-weight: 650; font-size: 13.5px; flex: 1; letter-spacing: .2px; }
-    .iconbtn {
-      display: inline-flex; align-items: center; justify-content: center;
-      border: none; background: transparent; color: #8b90a0; cursor: pointer;
-      width: 30px; height: 30px; border-radius: 8px; padding: 0;
-    }
-    .iconbtn svg { width: 16px; height: 16px; }
-    .iconbtn:hover { background: rgba(255,255,255,.07); color: #e6e8ee; }
+    .oc-head { display: flex; align-items: center; gap: 9px; padding: 11px 12px; border-bottom: 1px solid rgba(255,255,255,.07); }
+    .oc-head .logo { width: 17px; height: 17px; color: #4c8dff; flex: none; }
+    .oc-head .title { font-weight: 650; font-size: 13px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .oc-path { font: 11px ui-monospace, monospace; color: #8b90a0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .iconbtn { display: inline-flex; align-items: center; justify-content: center; border: none; background: transparent; color: #8b90a0; cursor: pointer; width: 28px; height: 28px; border-radius: 8px; padding: 0; }
+    .iconbtn svg { width: 15px; height: 15px; }
+    .iconbtn:hover { background: rgba(255,255,255,.08); color: #e6e8ee; }
 
-    .oc-actions { padding: 12px 14px 6px; }
-    button.primary {
-      font: inherit; font-weight: 600; width: 100%;
-      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-      padding: 10px 12px; border-radius: 10px; cursor: pointer;
-      color: #fff; background: #3f7dff; border: 1px solid #3f7dff;
-      transition: background .15s, transform .05s;
-    }
-    button.primary svg { width: 16px; height: 16px; }
-    button.primary:hover:not(:disabled) { background: #3670f0; }
-    button.primary:active:not(:disabled) { transform: translateY(1px); }
-    button.primary:disabled { opacity: .4; cursor: default; }
-    #oc-pick.active { background: #e0632a; border-color: #e0632a; }
-
-    #oc-list { flex: 1; overflow-y: auto; padding: 10px 14px; display: flex; flex-direction: column; gap: 10px; }
-    #oc-list::-webkit-scrollbar { width: 10px; }
-    #oc-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 6px; border: 3px solid #16171d; }
-    .oc-empty { color: #71768a; font-size: 12.5px; padding: 26px 8px; text-align: center; line-height: 1.6; }
-
-    .oc-card {
-      background: #1f2129; border: 1px solid rgba(255,255,255,.08); border-radius: 12px;
-      padding: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.3);
-    }
-    .oc-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-    .oc-desc {
-      font: 11.5px ui-monospace, monospace; color: #aeb4c6;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      background: rgba(255,255,255,.06); padding: 3px 8px; border-radius: 6px; flex: 1;
-    }
-    .oc-card textarea {
-      width: 100%; resize: vertical; min-height: 46px; font: inherit;
-      border: 1px solid rgba(255,255,255,.1); border-radius: 8px; padding: 8px 9px;
+    textarea.oc-ta {
+      width: 100%; resize: vertical; min-height: 62px; font: inherit;
+      border: 1px solid rgba(255,255,255,.12); border-radius: 9px; padding: 9px 10px;
       background: #14151b; color: #e6e8ee;
     }
-    .oc-card textarea::placeholder { color: #616678; }
-    .oc-card textarea:focus { outline: none; border-color: #4c8dff; box-shadow: 0 0 0 3px rgba(76,141,255,.18); }
-    .oc-modes { display: flex; gap: 6px; margin-top: 8px; }
-    .oc-mode {
-      font: inherit; font-size: 12px; font-weight: 600; flex: 1;
-      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-      padding: 6px 8px; border-radius: 8px; cursor: pointer;
-      background: rgba(255,255,255,.05); color: #9298aa; border: 1px solid transparent;
-    }
+    textarea.oc-ta::placeholder { color: #616678; }
+    textarea.oc-ta:focus { outline: none; border-color: #4c8dff; box-shadow: 0 0 0 3px rgba(76,141,255,.18); }
+
+    .oc-modes { display: flex; gap: 6px; margin-top: 9px; }
+    .oc-mode { font: inherit; font-size: 12px; font-weight: 600; flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 8px; border-radius: 8px; cursor: pointer; background: rgba(255,255,255,.05); color: #9298aa; border: 1px solid transparent; }
     .oc-mode svg { width: 13px; height: 13px; }
     .oc-mode:hover { background: rgba(255,255,255,.09); color: #cfd3df; }
     .oc-mode.sel { background: rgba(76,141,255,.16); color: #7aa9ff; border-color: rgba(76,141,255,.4); }
 
-    #oc-sidebar footer { padding: 12px 14px 14px; border-top: 1px solid rgba(255,255,255,.07); position: relative; }
+    .btn { font: inherit; font-weight: 600; font-size: 12.5px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 12px; border-radius: 9px; cursor: pointer; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #e6e8ee; transition: background .15s, transform .05s; }
+    .btn svg { width: 15px; height: 15px; }
+    .btn:hover:not(:disabled) { background: rgba(255,255,255,.1); }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn:disabled { opacity: .4; cursor: default; }
+    .btn.primary { background: #3f7dff; border-color: #3f7dff; color: #fff; }
+    .btn.primary:hover:not(:disabled) { background: #3670f0; }
+
+    /* popup */
+    .oc-popup { position: fixed; z-index: 2147483647; width: 320px; pointer-events: auto; }
+    .oc-popup .oc-body { padding: 11px 12px; }
+    .oc-popup .oc-foot { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid rgba(255,255,255,.07); }
+    .oc-popup .oc-foot .btn { flex: 1; }
+    .oc-hintline { font-size: 11px; color: #6a6f80; margin-top: 8px; text-align: center; }
+
+    /* sidebar (floating card at right, not pinned) */
+    .oc-sidebar { position: fixed; top: 16px; right: 16px; bottom: 16px; width: 330px; z-index: 2147483645; display: flex; flex-direction: column; pointer-events: auto; overflow: hidden; }
+    .oc-sidebar .badge { font-size: 11px; font-weight: 700; color: #7aa9ff; background: rgba(76,141,255,.16); border-radius: 999px; padding: 1px 8px; }
+    .oc-list { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 9px; }
+    .oc-list::-webkit-scrollbar { width: 10px; }
+    .oc-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+    .oc-empty { color: #71768a; font-size: 12.5px; padding: 24px 8px; text-align: center; line-height: 1.6; }
+    .oc-card { background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); border-radius: 11px; padding: 9px 10px; }
+    .oc-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+    .oc-desc { font: 11px ui-monospace, monospace; color: #aeb4c6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 6px; flex: 1; }
+    .oc-card .oc-text { font-size: 12.5px; color: #d4d7e0; white-space: pre-wrap; word-break: break-word; }
+    .oc-card .oc-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #9298aa; margin-top: 6px; }
+    .oc-card .oc-tag svg { width: 12px; height: 12px; }
+    .oc-foot-bar { padding: 11px 12px; border-top: 1px solid rgba(255,255,255,.07); position: relative; }
     .oc-status { font-size: 12px; margin-bottom: 9px; display: flex; align-items: center; gap: 8px; color: #9298aa; }
     .oc-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #5b6070; flex: none; }
     .oc-status.good::before { background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,.6); }
-    .oc-status.warn::before { background: #fbbf24; }
-    .oc-status.bad::before { background: #f87171; }
-    .oc-status.checking::before { background: #60a5fa; }
-    .oc-status.good { color: #34d399; }
-    .oc-status.warn { color: #fbbf24; }
-    .oc-status.bad { color: #f87171; }
-
-    .oc-toast {
-      position: absolute; left: 14px; right: 14px; bottom: 62px;
-      background: #0e0f14; color: #fff; font-size: 12.5px;
-      padding: 9px 12px; border-radius: 9px; opacity: 0; transform: translateY(6px);
-      transition: opacity .2s, transform .2s; pointer-events: none;
-      box-shadow: 0 10px 30px rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.08);
-    }
+    .oc-status.warn::before { background: #fbbf24; } .oc-status.bad::before { background: #f87171; } .oc-status.checking::before { background: #60a5fa; }
+    .oc-status.good { color: #34d399; } .oc-status.warn { color: #fbbf24; } .oc-status.bad { color: #f87171; }
+    .oc-submit { width: 100%; }
+    .oc-toast { position: absolute; left: 12px; right: 12px; bottom: 58px; background: #0e0f14; color: #fff; font-size: 12.5px; padding: 9px 12px; border-radius: 9px; opacity: 0; transform: translateY(6px); transition: opacity .2s, transform .2s; pointer-events: none; box-shadow: 0 10px 30px rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.08); }
     .oc-toast.show { opacity: 1; transform: translateY(0); }
     .oc-toast.bad { border-color: rgba(248,113,113,.5); color: #fca5a5; }
+    .oc-toast-float { position: fixed; left: auto; right: 20px; bottom: 20px; width: auto; max-width: 320px; z-index: 2147483647; }
   `;
 
   let host = null;
   let root = null;
   let picking = false;
-  let annotations = [];
+  let popupEl = null;
+  let pending = []; // annotations added to the sidebar list
+  let sidebarOpen = false;
   let statusTimer = null;
-  let visible = false;
 
-  // ---------- element metadata ----------
+  // ---------- metadata ----------
 
   function bestTestId(el) {
-    for (const attr of ["data-testid", "data-test", "data-test-id", "data-cy", "data-qa"]) {
-      const v = el.getAttribute && el.getAttribute(attr);
+    for (const a of ["data-testid", "data-test", "data-test-id", "data-cy", "data-qa"]) {
+      const v = el.getAttribute && el.getAttribute(a);
       if (v) return v;
     }
     return undefined;
@@ -170,9 +146,9 @@
       if (node.classList && node.classList.length) {
         sel += "." + Array.from(node.classList).slice(0, 3).map((c) => CSS.escape(c)).join(".");
       }
-      const parent = node.parentElement;
-      if (parent) {
-        const sibs = Array.from(parent.children).filter((c) => c.nodeName === node.nodeName);
+      const p = node.parentElement;
+      if (p) {
+        const sibs = Array.from(p.children).filter((c) => c.nodeName === node.nodeName);
         if (sibs.length > 1) sel += `:nth-of-type(${sibs.indexOf(node) + 1})`;
       }
       parts.unshift(sel);
@@ -188,7 +164,7 @@
   function elementMeta(el, inShadow) {
     const r = el.getBoundingClientRect();
     const classes = el.classList ? Array.from(el.classList) : [];
-    const meta = {
+    const m = {
       selector: cssPath(el),
       tag: el.tagName,
       id: el.id || undefined,
@@ -205,61 +181,48 @@
       inIframe: window.top !== window.self,
       html: (el.outerHTML || "").slice(0, 800),
     };
-    for (const k of Object.keys(meta)) if (meta[k] === undefined) delete meta[k];
-    return meta;
+    for (const k of Object.keys(m)) if (m[k] === undefined) delete m[k];
+    return m;
   }
 
-  function shortDescriptor(el) {
+  function descriptor(el) {
     const tag = (el.tag || "el").toLowerCase();
-    const id = el.testId
-      ? `[data-testid=${el.testId}]`
-      : el.id
-        ? `#${el.id}`
-        : el.ariaLabel
-          ? `[${el.ariaLabel}]`
-          : el.classes && el.classes.length
-            ? `.${el.classes[0]}`
-            : "";
+    const id = el.testId ? `[data-testid=${el.testId}]` : el.id ? `#${el.id}` : el.ariaLabel ? `[${el.ariaLabel}]` : el.classes && el.classes.length ? `.${el.classes[0]}` : "";
     return `${tag}${id}`;
   }
 
-  // ---------- picking (layer is always pointer-events:none; read the real
-  // element from the event's composed path, which pierces shadow DOM) ----------
+  function escapeHtml(s) {
+    return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  // ---------- picking ----------
 
   function pickTarget(e) {
     const path = e.composedPath ? e.composedPath() : [e.target];
     for (const n of path) {
-      if (n === host) return null; // our UI wrapper
+      if (n === host) return null;
       if (!(n instanceof Element)) continue;
-      if (root && root.contains(n)) return null; // hovering our own UI
+      if (root && root.contains(n)) return null;
       const inShadow = n.getRootNode && n.getRootNode() instanceof ShadowRoot;
       return { el: n, inShadow };
     }
     return null;
   }
 
-  function positionHighlight(el) {
-    const box = root.getElementById("oc-highlight");
-    if (!box) return;
-    const r = el.getBoundingClientRect();
-    Object.assign(box.style, {
-      display: "block",
-      left: `${r.left}px`,
-      top: `${r.top}px`,
-      width: `${r.width}px`,
-      height: `${r.height}px`,
-    });
+  function hl() {
+    return root.getElementById("oc-hl");
   }
 
   function onMove(e) {
     if (!picking) return;
     const hit = pickTarget(e);
+    const box = hl();
     if (!hit) {
-      const box = root.getElementById("oc-highlight");
-      if (box) box.style.display = "none";
+      box.style.display = "none";
       return;
     }
-    positionHighlight(hit.el);
+    const r = hit.el.getBoundingClientRect();
+    Object.assign(box.style, { display: "block", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
   }
 
   function onClick(e) {
@@ -269,94 +232,241 @@
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
+    const rect = hit.el.getBoundingClientRect();
     stopPicking();
-    addCardForElement(elementMeta(hit.el, hit.inShadow));
+    openPopup(elementMeta(hit.el, hit.inShadow), rect);
   }
 
   function onKey(e) {
     if (e.key === "Escape") {
-      if (picking) stopPicking();
-      else toggle();
+      if (popupEl) closePopup();
+      else if (picking) stopPicking();
     }
   }
 
+  function ensureUI() {
+    if (host) return;
+    host = document.createElement("div");
+    host.id = "oc-annotation-host";
+    host.style.cssText = "all: initial;";
+    root = host.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = STYLE;
+    root.appendChild(style);
+    const hlBox = document.createElement("div");
+    hlBox.className = "oc-hl";
+    hlBox.id = "oc-hl";
+    root.appendChild(hlBox);
+    const hint = document.createElement("div");
+    hint.className = "oc-hint";
+    hint.id = "oc-hint";
+    hint.innerHTML = `<span>Click an element to annotate</span><span class="key">Esc</span>`;
+    root.appendChild(hint);
+    document.documentElement.appendChild(host);
+    document.addEventListener("mousemove", onMove, true);
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("keydown", onKey, true);
+  }
+
   function startPicking() {
+    ensureUI();
+    closePopup();
     picking = true;
     document.documentElement.style.cursor = "crosshair";
     root.getElementById("oc-hint").style.display = "flex";
-    setPickBtn(true);
   }
 
   function stopPicking() {
     picking = false;
     document.documentElement.style.cursor = "";
-    const box = root.getElementById("oc-highlight");
-    if (box) box.style.display = "none";
-    root.getElementById("oc-hint").style.display = "none";
-    setPickBtn(false);
-  }
-
-  function setPickBtn(active) {
-    const btn = root.getElementById("oc-pick");
-    if (btn) {
-      btn.innerHTML = `${ICON.target}<span>${active ? "Picking… (Esc)" : "Select element"}</span>`;
-      btn.classList.toggle("active", active);
+    if (root) {
+      hl().style.display = "none";
+      root.getElementById("oc-hint").style.display = "none";
     }
   }
 
-  // ---------- cards ----------
+  // ---------- popup (onUI-style, positioned near element) ----------
 
-  function addCardForElement(element) {
-    annotations.push({ instruction: "", mode: "act", page: { url: location.href, title: document.title }, element });
-    renderCards();
-    const areas = root.querySelectorAll(".oc-card textarea");
-    const last = areas[areas.length - 1];
-    if (last) last.focus();
+  function closePopup() {
+    if (popupEl) {
+      popupEl.remove();
+      popupEl = null;
+    }
   }
 
-  function escapeHtml(s) {
-    return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  function openPopup(element, rect) {
+    ensureUI();
+    closePopup();
+    const state = { mode: "act" };
+    const el = document.createElement("div");
+    el.className = "oc-popup oc-surface";
+    el.innerHTML = `
+      <div class="oc-head">
+        <span class="logo">${ICON.logo}</span>
+        <span class="oc-path" title="${escapeHtml(element.selector || "")}">${escapeHtml(descriptor(element))}</span>
+        <button class="iconbtn oc-x" title="Cancel (Esc)">${ICON.close}</button>
+      </div>
+      <div class="oc-body">
+        <textarea class="oc-ta" rows="3" placeholder="Describe the change or ask about this element…"></textarea>
+        <div class="oc-modes">
+          <button class="oc-mode sel" data-mode="act">${ICON.bolt}<span>Act now</span></button>
+          <button class="oc-mode" data-mode="queue">${ICON.layers}<span>Queue</span></button>
+        </div>
+        <div class="oc-hintline">Cmd/Ctrl+Enter to send</div>
+      </div>
+      <div class="oc-foot">
+        <button class="btn oc-add">${ICON.plus}<span>Add to list</span></button>
+        <button class="btn primary oc-send">${ICON.send}<span>Send</span></button>
+      </div>`;
+    root.appendChild(el);
+    popupEl = el;
+    positionPopup(el, rect);
+
+    const ta = el.querySelector(".oc-ta");
+    setTimeout(() => ta.focus(), 30);
+
+    el.querySelector(".oc-x").addEventListener("click", closePopup);
+    el.querySelectorAll(".oc-mode").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.mode = b.dataset.mode;
+        el.querySelectorAll(".oc-mode").forEach((x) => x.classList.toggle("sel", x === b));
+      }),
+    );
+    const build = () => ({ instruction: ta.value.trim(), mode: state.mode, page: { url: location.href, title: document.title }, element });
+    el.querySelector(".oc-add").addEventListener("click", () => {
+      if (!ta.value.trim()) return ta.focus();
+      pending.push(build());
+      closePopup();
+      openSidebar();
+    });
+    el.querySelector(".oc-send").addEventListener("click", () => {
+      if (!ta.value.trim()) return ta.focus();
+      const one = build();
+      closePopup();
+      submit([one], true);
+    });
+    ta.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (ta.value.trim()) {
+          const one = build();
+          closePopup();
+          submit([one], true);
+        }
+      }
+    });
+  }
+
+  function positionPopup(el, rect) {
+    const w = 320;
+    const r = el.getBoundingClientRect();
+    const h = r.height || 220;
+    let left = rect.left + rect.width + 14;
+    let top = rect.top;
+    if (left + w > window.innerWidth - 16) left = rect.left - w - 14;
+    if (left < 16) left = 16;
+    if (top + h > window.innerHeight - 16) top = window.innerHeight - h - 16;
+    if (top < 16) top = 16;
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+  }
+
+  // ---------- sidebar ----------
+
+  function openSidebar() {
+    ensureUI();
+    sidebarOpen = true;
+    let sb = root.getElementById("oc-sidebar");
+    if (!sb) {
+      sb = document.createElement("aside");
+      sb.className = "oc-sidebar oc-surface";
+      sb.id = "oc-sidebar";
+      sb.innerHTML = `
+        <div class="oc-head">
+          <span class="logo">${ICON.logo}</span>
+          <span class="title">Annotations</span>
+          <span class="badge" id="oc-badge">0</span>
+          <button class="iconbtn" id="oc-close" title="Close (Alt+Shift+A)">${ICON.close}</button>
+        </div>
+        <div class="oc-list" id="oc-list"></div>
+        <div class="oc-foot-bar">
+          <div class="oc-status" id="oc-status">…</div>
+          <button class="btn primary oc-submit" id="oc-submit" disabled>${ICON.send}<span>Submit to agent</span></button>
+          <div class="oc-toast" id="oc-toast"></div>
+        </div>`;
+      root.appendChild(sb);
+      sb.querySelector("#oc-close").addEventListener("click", closeSidebar);
+      sb.querySelector("#oc-submit").addEventListener("click", () => {
+        submit(pending, false);
+      });
+      sb.querySelector("#oc-list").addEventListener("click", (e) => {
+        const rm = e.target.closest(".oc-rm");
+        if (rm) {
+          pending.splice(Number(rm.dataset.i), 1);
+          renderCards();
+        }
+      });
+    }
+    sb.style.display = "flex";
+    renderCards();
+    refreshStatus();
+    if (!statusTimer) statusTimer = setInterval(refreshStatus, 15000);
+  }
+
+  function closeSidebar() {
+    sidebarOpen = false;
+    const sb = root && root.getElementById("oc-sidebar");
+    if (sb) sb.style.display = "none";
+    if (statusTimer) {
+      clearInterval(statusTimer);
+      statusTimer = null;
+    }
+  }
+
+  function toggleSidebar() {
+    if (sidebarOpen) closeSidebar();
+    else openSidebar();
   }
 
   function renderCards() {
+    if (!root) return;
     const list = root.getElementById("oc-list");
+    const badge = root.getElementById("oc-badge");
+    if (badge) badge.textContent = String(pending.length);
     list.innerHTML = "";
-    if (annotations.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "oc-empty";
-      empty.textContent = "No annotations yet. Click “Select element”, then click something on the page.";
-      list.appendChild(empty);
+    if (pending.length === 0) {
+      const e = document.createElement("div");
+      e.className = "oc-empty";
+      e.textContent = "No annotations yet. Press Alt+A, click an element, and “Add to list”.";
+      list.appendChild(e);
     }
-    annotations.forEach((a, i) => {
+    pending.forEach((a, i) => {
       const card = document.createElement("div");
       card.className = "oc-card";
+      const modeIcon = a.mode === "queue" ? ICON.layers : ICON.bolt;
+      const modeName = a.mode === "queue" ? "Queue" : "Act now";
       card.innerHTML = `
         <div class="oc-card-head">
-          <span class="oc-desc" title="${escapeHtml(a.element.selector || "")}">${escapeHtml(shortDescriptor(a.element))}</span>
+          <span class="oc-desc" title="${escapeHtml(a.element.selector || "")}">${escapeHtml(descriptor(a.element))}</span>
           <button class="iconbtn oc-rm" data-i="${i}" title="Remove">${ICON.trash}</button>
         </div>
-        <textarea rows="2" placeholder="Instruction for this element…" data-i="${i}">${escapeHtml(a.instruction)}</textarea>
-        <div class="oc-modes">
-          <button class="oc-mode ${a.mode === "act" ? "sel" : ""}" data-mode="act" data-i="${i}">${ICON.bolt}<span>Act now</span></button>
-          <button class="oc-mode ${a.mode === "queue" ? "sel" : ""}" data-mode="queue" data-i="${i}">${ICON.layers}<span>Queue</span></button>
-        </div>`;
+        <div class="oc-text">${escapeHtml(a.instruction || "(no instruction)")}</div>
+        <div class="oc-tag">${modeIcon}<span>${modeName}</span></div>`;
       list.appendChild(card);
     });
-    updateSubmit();
-  }
-
-  function updateSubmit() {
     const btn = root.getElementById("oc-submit");
-    btn.disabled = annotations.length === 0;
-    btn.querySelector("span").textContent = annotations.length
-      ? `Submit ${annotations.length} to agent`
-      : "Submit to agent";
+    if (btn) {
+      btn.disabled = pending.length === 0;
+      btn.querySelector("span").textContent = pending.length ? `Submit ${pending.length} to agent` : "Submit to agent";
+    }
   }
 
-  // ---------- status ----------
+  // ---------- status + submit ----------
 
   function refreshStatus() {
+    if (!root) return;
     const el = root.getElementById("oc-status");
+    if (!el) return;
     el.className = "oc-status checking";
     el.textContent = "Checking connection…";
     chrome.runtime.sendMessage({ type: "oc-status" }, (res) => {
@@ -381,141 +491,58 @@
     });
   }
 
-  // ---------- submit ----------
-
-  function collectInstructions() {
-    root.querySelectorAll(".oc-card textarea").forEach((ta) => {
-      const i = Number(ta.dataset.i);
-      if (annotations[i]) annotations[i].instruction = ta.value.trim();
-    });
+  function toast(text, bad) {
+    if (!root) return;
+    // Prefer the sidebar's toast when it is open; otherwise use a standalone
+    // floating toast so a quick Send never forces the sidebar open.
+    const sb = root.getElementById("oc-sidebar");
+    let t = sb && sb.style.display !== "none" ? root.getElementById("oc-toast") : root.getElementById("oc-toast-float");
+    if (!t) {
+      t = document.createElement("div");
+      t.className = "oc-toast oc-toast-float";
+      t.id = "oc-toast-float";
+      root.appendChild(t);
+    }
+    t.textContent = text;
+    t.className = (t.id === "oc-toast-float" ? "oc-toast oc-toast-float" : "oc-toast") + " show" + (bad ? " bad" : "");
+    clearTimeout(t.__timer);
+    t.__timer = setTimeout(() => {
+      t.className = t.id === "oc-toast-float" ? "oc-toast oc-toast-float" : "oc-toast";
+    }, 4000);
   }
 
-  function submit() {
-    collectInstructions();
-    if (annotations.length === 0) return;
-    const btn = root.getElementById("oc-submit");
-    btn.disabled = true;
-    setToast("Submitting…");
+  function submit(annotations, quick) {
+    if (!annotations.length) return;
+    toast("Submitting…");
     chrome.runtime.sendMessage({ type: "oc-submit", annotations }, (res) => {
       if (chrome.runtime.lastError || !res) {
-        setToast("Extension error", true);
-        updateSubmit();
+        toast("Extension error", true);
         return;
       }
       if (res.ok) {
         const parts = [];
         if (res.injected) parts.push(`${res.injected} sent`);
         if (res.queued) parts.push(`${res.queued} queued`);
-        setToast(parts.length ? parts.join(", ") : "Submitted");
-        annotations = [];
-        renderCards();
+        toast(parts.length ? parts.join(", ") : "Submitted");
+        if (!quick) {
+          pending = [];
+          renderCards();
+        }
         refreshStatus();
       } else {
-        setToast(`Failed: ${res.error || "unknown"}`, true);
-        updateSubmit();
+        toast(`Failed: ${res.error || "unknown"}`, true);
+        if (!quick) {
+          // keep the list so the user can retry
+          renderCards();
+        }
       }
     });
   }
 
-  function setToast(text, bad) {
-    const t = root.getElementById("oc-toast");
-    t.textContent = text;
-    t.className = "oc-toast show" + (bad ? " bad" : "");
-    clearTimeout(t.__timer);
-    t.__timer = setTimeout(() => (t.className = "oc-toast"), 4000);
-  }
+  // ---------- messages ----------
 
-  // ---------- UI ----------
-
-  function buildUI() {
-    host = document.createElement("div");
-    host.id = "oc-annotation-host";
-    host.style.cssText = "all: initial;";
-    root = host.attachShadow({ mode: "open" });
-    root.innerHTML = `
-      <style>${STYLE}</style>
-      <div id="oc-layer"></div>
-      <div id="oc-highlight"></div>
-      <div id="oc-hint"><span>Hover an element and click to annotate</span><span class="key">Esc</span></div>
-      <aside id="oc-sidebar">
-        <header>
-          <span class="logo">${ICON.logo}</span>
-          <span class="title">OpenCode Annotation</span>
-          <button id="oc-close" class="iconbtn" title="Close (Alt+A)">${ICON.close}</button>
-        </header>
-        <div class="oc-actions"><button id="oc-pick" class="primary">${ICON.target}<span>Select element</span></button></div>
-        <div id="oc-list"></div>
-        <footer>
-          <div id="oc-status" class="oc-status">…</div>
-          <button id="oc-submit" class="primary" disabled>${ICON.send}<span>Submit to agent</span></button>
-          <div id="oc-toast" class="oc-toast"></div>
-        </footer>
-      </aside>`;
-    document.documentElement.appendChild(host);
-
-    root.getElementById("oc-pick").addEventListener("click", () => (picking ? stopPicking() : startPicking()));
-    root.getElementById("oc-close").addEventListener("click", () => toggle());
-    root.getElementById("oc-submit").addEventListener("click", submit);
-    root.getElementById("oc-list").addEventListener("click", (e) => {
-      const rm = e.target.closest(".oc-rm");
-      if (rm) {
-        annotations.splice(Number(rm.dataset.i), 1);
-        renderCards();
-        return;
-      }
-      const mode = e.target.closest(".oc-mode");
-      if (mode) {
-        annotations[Number(mode.dataset.i)].mode = mode.dataset.mode;
-        renderCards();
-      }
-    });
-
-    renderCards();
-    refreshStatus();
-  }
-
-  function pushPage(on) {
-    const el = document.documentElement;
-    el.style.transition = "margin-right .22s ease";
-    el.style.marginRight = on ? `${SIDEBAR_W}px` : "";
-  }
-
-  function open() {
-    if (!host) buildUI();
-    else host.style.display = "";
-    pushPage(true);
-    document.addEventListener("mousemove", onMove, true);
-    document.addEventListener("click", onClick, true);
-    document.addEventListener("keydown", onKey, true);
-    if (!statusTimer) statusTimer = setInterval(refreshStatus, 15000);
-    refreshStatus();
-  }
-
-  function close() {
-    stopPicking();
-    pushPage(false);
-    document.removeEventListener("mousemove", onMove, true);
-    document.removeEventListener("click", onClick, true);
-    document.removeEventListener("keydown", onKey, true);
-    if (host) host.style.display = "none";
-    if (statusTimer) {
-      clearInterval(statusTimer);
-      statusTimer = null;
-    }
-  }
-
-  function toggle() {
-    visible = !visible;
-    if (visible) open();
-    else close();
-  }
-
-  window.addEventListener("oc-annotation-toggle", toggle);
   chrome.runtime.onMessage.addListener((msg) => {
-    if (msg?.type === "oc-toggle") toggle();
+    if (msg?.type === "oc-pick") startPicking();
+    else if (msg?.type === "oc-toggle-sidebar") toggleSidebar();
   });
-
-  // First injection opens immediately.
-  visible = true;
-  open();
 })();

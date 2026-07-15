@@ -1,8 +1,9 @@
 // Background service worker.
-// - Toggles the annotation overlay on Alt+A (command) or toolbar click.
-// - Performs all network I/O to the plugin endpoint (status + submit), because
-//   page CSP can block a content script from fetching localhost. Results are
-//   returned to the overlay via message responses.
+// - Alt+A            -> start element picking
+// - Alt+Shift+A      -> toggle the annotation-list sidebar
+// - toolbar click    -> toggle the sidebar
+// Performs all network I/O to the plugin endpoint (status + submit), because
+// page CSP can block a content script from fetching localhost.
 
 const DEFAULT_ENDPOINT = "http://127.0.0.1:39517";
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
@@ -12,33 +13,34 @@ async function getEndpoint() {
   return (endpoint || DEFAULT_ENDPOINT).replace(/\/+$/, "");
 }
 
-async function toggleOverlay(tab) {
+async function ensureInjected(tabId) {
+  const [{ result } = {}] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => Boolean(window.__ocAnnotationInjected),
+  });
+  if (!result) {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["overlay.js"] });
+  }
+}
+
+async function sendToOverlay(tab, type) {
   if (!tab?.id) return;
   try {
-    // The overlay content script listens for this and toggles itself. If it is
-    // not injected yet, inject it first, then it opens on load.
-    const [{ result } = {}] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => Boolean(window.__ocAnnotationInjected),
-    });
-    if (!result) {
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["overlay.js"] });
-    } else {
-      await chrome.tabs.sendMessage(tab.id, { type: "oc-toggle" });
-    }
+    await ensureInjected(tab.id);
+    await chrome.tabs.sendMessage(tab.id, { type });
   } catch {
     // e.g. chrome:// pages or the web store cannot be injected.
   }
 }
 
 chrome.commands.onCommand.addListener(async (command) => {
-  if (command !== "toggle-overlay") return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  await toggleOverlay(tab);
+  if (command === "select-element") await sendToOverlay(tab, "oc-pick");
+  else if (command === "toggle-sidebar") await sendToOverlay(tab, "oc-toggle-sidebar");
 });
 
 chrome.action.onClicked.addListener((tab) => {
-  void toggleOverlay(tab);
+  void sendToOverlay(tab, "oc-toggle-sidebar");
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

@@ -73,15 +73,18 @@ extension's **Settings** page.
 ## Use
 
 1. Send at least one message in OpenCode so the plugin knows the active session.
-2. Press **Alt+A** on any page to open the annotation overlay (or click the
-   toolbar icon). Press Alt+A again or Esc to close it.
-3. In the sidebar, click **Select element**, hover to highlight, and click the
-   element you want (works inside shadow DOM).
-4. Type an instruction in the card. Choose **Act now** (agent responds
-   immediately) or **Queue** (held for context until the next Act). Repeat for
-   more elements.
-5. Click **Submit to agent**. The sidebar footer shows the connection and active
-   session; a toast confirms how many were sent vs queued.
+2. Press **Alt+A** on any page, then click an element (highlight follows the
+   cursor; works inside shadow DOM). A popup opens next to it.
+3. In the popup, type an instruction and choose **Act now** (agent responds
+   immediately) or **Queue** (held for context until the next Act). Then either:
+   - **Send** (or Cmd/Ctrl+Enter) — submit this one right away, no sidebar needed.
+   - **Add to list** — stash it in the sidebar to batch with others.
+4. Press **Alt+Shift+A** (or click the toolbar icon) to open the **list sidebar**,
+   review pending annotations, and **Submit** them together. The footer shows the
+   connection status; a toast confirms how many were sent vs queued.
+
+Shortcuts: `Alt+A` picks an element, `Alt+Shift+A` toggles the list. If they do
+nothing after loading an unpacked build, set them at `chrome://extensions/shortcuts`.
 
 ## Payload
 
