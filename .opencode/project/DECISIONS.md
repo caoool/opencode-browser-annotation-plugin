@@ -48,3 +48,19 @@ Material decisions with rationale and supersession history. Grilled 2026-07-14.
 - Decision: publish to npm from `caoool/opencode-browser-annotation-plugin` with CI and OIDC trusted publishing.
 - Rationale: distributable, versioned, matches the user's other plugins.
 - Consequences: packaging/semver/provenance work; extension load/update flow to document.
+
+### DEC-007 — Ship the extension to the Chrome Web Store
+
+- Status: active
+- Decision: publish the extension publicly on the Chrome Web Store (category Developer Tools). Build the upload zip with `npm run pack:ext` (`scripts/pack-extension.mjs`, explicit allowlist under `extension/`, manifest at zip root). Keep listing copy in `STORE.md`.
+- Rationale: user wants public discoverability, not only unpacked/self-distribution.
+- Consequences: user must maintain the $5 Google dev account, contact-email verification, and per-permission justifications; screenshots + privacy policy URL are required even though the extension collects no data.
+- Evidence: submitted for review 2026-07-15 with `dist/extension.zip` (0.6.2).
+
+### DEC-008 — Landing page + privacy policy on GitHub Pages
+
+- Status: active
+- Decision: host a static landing page and privacy policy from `docs/` on `main` via GitHub Pages (`.nojekyll`), at https://caoool.github.io/opencode-browser-annotation-plugin/ . Use it for the Web Store Homepage URL and (after Search Console verification) the Official URL.
+- Rationale: no custom domain owned; Pages satisfies the required Privacy policy URL and gives a real product page. Domain-property verification is impossible on `github.io` (GitHub owns DNS), so use Search Console URL-prefix + HTML meta-tag verification instead.
+- Consequences: `docs/` is not in npm `files` (won't ship to npm) and is excluded from the extension zip. Privacy policy asserts zero data collection, matching the Privacy-tab answers.
+- Evidence: Pages build "built", privacy.html HTTP 200; verification meta tag live in `<head>`.

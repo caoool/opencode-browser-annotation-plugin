@@ -1,41 +1,49 @@
 # Project Handoff
 
-- Updated: 2026-07-15T04:00:00Z
+- Updated: 2026-07-15T02:10:00Z
 - Branch: `main`
-- Session focus: built and verified the v0.1 plugin + extension.
+- Session focus: extension icons, Chrome Web Store packaging + submission, GitHub Pages landing + privacy pages.
 
 ## Current Objective
 
-Local install for the user + a live in-browser test over the tunnel; then set up
-npm trusted publishing and cut a release.
+Chrome Web Store review is in progress (submitted 2026-07-15). Handle any Google
+change-requests; optionally finish Search Console verification to set the Official URL.
 
-## Completed
+## Completed (this session)
 
-- Grilling session (2026-07-14) locked scope and architecture; see DECISIONS and FINDINGS.
-- Built the plugin (`src/plugin.ts`) and verified injection end-to-end in a live `opencode serve` — the agent received and acted on an annotation.
-- Switched injection to `client.session.promptAsync` so the extension gets a fast ack.
-- Built the MV3 Chrome extension (`extension/`), README, CI + publish workflows.
+- Payload polish (0.6.1): `safeOpenTag` drops class/style + omits bare `<tag>`; secret redaction widened to input name/type (verified `authenticity_token` -> `[redacted]`).
+- Icons (0.6.2): `extension/icons/icon.svg` -> 16/32/48/128 + 512; wired into manifest.
+- Packaging: `scripts/pack-extension.mjs` + `npm run pack:ext` -> `dist/extension.zip` (manifest at root, CRC-validated).
+- Store kit `STORE.md`; 3x 1280x800 screenshots (`store/screenshots/`, `docs/img/`) captured by driving the REAL overlay via a `chrome.*` shim against the live plugin.
+- Landing + privacy pages in `docs/` on GitHub Pages (main `/docs`); live + 200. Search Console meta tag in `<head>`.
+- Submitted to the Chrome Web Store.
 
 ## Current Changes
 
-- Source, extension, README, workflows added. `dist/` is built locally (gitignored).
+- All committed and pushed to `main`. npm at 0.6.2 (CI trusted publishing). `dist/` gitignored (build the zip with `npm run pack:ext`).
 
 ## Decisions and Findings
 
-- See DEC-001..DEC-006 and FND-001..FND-005.
-- Headline: build fresh; gap 1 only (no vision); loopback + ssh -R; inject via `client.session.prompt`; extension in the debug Chrome profile; publish to npm with CI.
+- See DEC-001..DEC-008 and FND-001..FND-005.
+- New: DEC-007 (ship to Chrome Web Store; zip via allowlist, manifest at root), DEC-008 (landing + privacy on GitHub Pages; Search Console URL-prefix + meta-tag verification because `github.io` domain-property DNS verification is impossible).
 
 ## Blockers and Risks
 
-- Active-session id discovery for injection.
-- Element-metadata sufficiency without a screenshot (ambiguous "this element").
-- npm trusted-publishing + unpacked-extension update flow.
-- Versioned extension↔plugin payload schema.
+- Web Store review outcome unknown; permission-justification wording is the usual rejection cause (copy lives in `STORE.md`).
+- Search Console "Official URL" requires the SAME Google account as the dev dashboard.
+- Screenshots use a generic "Acme" demo app, not the user's real app.
 
 ## Exact Next Actions
 
-1. Scaffold repo: plugin package (`@opencode-ai/plugin`), extension source, `package.json`, CI, trusted publishing.
-2. Build plugin HTTP server (127.0.0.1) + extension (select element, list, Submit → POST).
-3. Inject a turn via `client.session.prompt`; resolve active session id.
-4. Desktop hints: include BOTH the plugin reverse tunnel and the 9333 desktop-drive port.
-5. Local install for the user; then harden + publish.
+1. On Google verdict: if changes requested, fix (likely justifications in `STORE.md`) and resubmit.
+2. Optional: click Verify in Search Console (meta tag live), then set Web Store Official URL from the dropdown.
+3. Optional: generate promo tiles (440x280, 1400x560).
+4. To rebuild the upload zip after any extension change: bump versions (package.json + manifest.json), `npm run pack:ext`, and release for npm.
+
+## Web Store asset locations
+
+- Upload zip: `npm run pack:ext` -> `dist/extension.zip`
+- Store icon/promo: `extension/icons/icon-128.png`, `icon-512.png`
+- Screenshots: `store/screenshots/*.png`
+- Listing copy + justifications: `STORE.md`
+- Homepage/Privacy URLs: https://caoool.github.io/opencode-browser-annotation-plugin/ and `/privacy.html`

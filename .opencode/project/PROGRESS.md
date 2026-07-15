@@ -1,19 +1,23 @@
 # Project Progress
 
-- Updated: 2026-07-15T04:00:00Z
-- Milestone: v0.1 build
+- Updated: 2026-07-15T02:10:00Z
+- Milestone: v0.6.2 shipped; Chrome Web Store submitted for review
 
 ## Completed
 
-- Plugin (`src/plugin.ts`): loopback HTTP server (configurable host/port), active-session tracking via the `chat.message` hook, injection via `client.session.promptAsync`. Typechecks and builds to `dist/`.
-- Verified end-to-end in a live `opencode serve`: POST to `/annotations` injected a new user turn and the agent responded to the instruction + element metadata. `/status` returns health JSON.
-- Chrome extension (MV3, `extension/`): element picker content script, background store + batch submit, popup (list/select/submit/clear), options page (endpoint config).
-- README with plugin + extension install and the `ssh -R` tunnel workflow.
-- CI (`.github/workflows/ci.yml`: typecheck + build) and Publish (`publish.yml`: npm trusted publishing via OIDC on release).
+- Plugin (`src/plugin.ts`): loopback HTTP server (configurable host/port), active-session tracking, injection via OpenCode SDK. Typechecks and builds to `dist/`. Published to npm (currently 0.6.2 via CI trusted publishing).
+- Chrome extension (MV3, `extension/`): element picker, onUI-style popup (Send + Add-to-list), dark floating sidebar, custom upward session dropdown/targeting, element thumbnails (local-only), status poll, keyboard containment, context-invalidation guard.
+- Lean payload (0.6.x): `cleanText`, `safeOpenTag` (opening-tag-only; excludes class/style; omits bare `<tag>`; redacts secret-looking values by attr name and by input name/type). Guidance lives in the bundled `browser-annotation` skill (auto-loaded), not in each message.
+- Icons (0.6.2): `extension/icons/icon.svg` -> 16/32/48/128 + 512 promo (dark badge, mint picker brackets, cursor). Wired into manifest (`icons` + `action.default_icon`).
+- Web Store packaging: `scripts/pack-extension.mjs` + `npm run pack:ext` -> `dist/extension.zip` (manifest at zip root, deterministic, zero-dep; CRC-validated).
+- Store listing kit: `STORE.md` (description, permission justifications, privacy disclosures, single purpose).
+- Screenshots: 3x 1280x800 in `store/screenshots/` (also `docs/img/`), captured by driving the REAL `overlay.js` against a demo dashboard via a `chrome.*` shim in headless Chrome hitting the live plugin.
+- Landing page: `docs/index.html` + `docs/privacy.html`, served by GitHub Pages (main `/docs`, `.nojekyll`). Live at https://caoool.github.io/opencode-browser-annotation-plugin/ . Google Search Console meta tag added to `<head>`.
+- CI + Publish workflows (npm trusted publishing via OIDC on release; Node 24 + npm@11).
 
 ## Active
 
-- Local install for the user; live browser test through the tunnel.
+- Chrome Web Store review in progress (submitted 2026-07-15). Awaiting Google verdict (email).
 
 ## Blocked
 
@@ -21,12 +25,13 @@
 
 ## Next
 
-- Configure npm trusted publishing for the package on npmjs.com (repo + workflow).
-- User loads the unpacked extension and tests the full loop over the tunnel.
+- If review requests changes: adjust (likely permission-justification wording) and resubmit.
+- Optional/non-blocking: finish Search Console Verify, then set the Web Store "Official URL" from the dropdown (same Google account as the dev dashboard).
+- Optional: promo tiles (440x280, 1400x560) for featured placement.
 
 ## Verification State
 
-- Plugin typecheck + build: passed.
-- End-to-end injection in `opencode serve`: passed (agent received and acted on the annotation).
-- `npm pack --dry-run`: ships `dist/` + `extension/` + README.
-- Extension JS syntax + manifest JSON: passed. Live in-browser test: pending user.
+- Plugin typecheck + build: passed. npm shows 0.6.2.
+- `dist/extension.zip`: python `zipfile.testzip()` OK, manifest.json at root, version 0.6.2.
+- Landing page + privacy page: HTTP 200 live on Pages; no broken images; no mobile overflow (checked 390px + 1280px).
+- Secret redaction: verified `authenticity_token` hidden input value -> `[redacted]`.
