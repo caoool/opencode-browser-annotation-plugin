@@ -1,0 +1,27 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22262e"/>
+      <stop offset="1" stop-color="#15171c"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="34" y1="30" x2="94" y2="98" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7ef0c8"/>
+      <stop offset="1" stop-color="#39c79a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded dark badge -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
+  <rect x="4.5" y="4.5" width="119" height="119" rx="27.5" fill="none" stroke="#3a3f49" stroke-width="1"/>
+
+  <!-- element-picker corner brackets (mint) -->
+  <g stroke="url(#mint)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M34 50 V38 A4 4 0 0 1 38 34 H50"/>
+    <path d="M78 34 H90 A4 4 0 0 1 94 38 V50"/>
+    <path d="M34 78 V90 A4 4 0 0 1 38 94 H50"/>
+  </g>
+
+  <!-- cursor / pick arrow, lower-right, on top of brackets -->
+  <path d="M66 60 L98 74 L83 80 L91 98 L82 102 L74 84 L62 92 Z"
+        fill="#ffffff" stroke="#15171c" stroke-width="3" stroke-linejoin="round"/>
+</svg>

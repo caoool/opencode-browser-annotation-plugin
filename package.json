@@ -1,6 +1,6 @@
 {
   "name": "opencode-browser-annotation-plugin",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Select an element in your browser, type an instruction, and send it to your OpenCode agent over a loopback + SSH tunnel. Text and element metadata only (no screenshots).",
   "keywords": [
     "opencode",
@@ -34,6 +34,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pack:ext": "node scripts/pack-extension.mjs",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
