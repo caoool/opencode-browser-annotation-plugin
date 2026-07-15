@@ -1,10 +1,17 @@
 {
   "manifest_version": 3,
   "name": "OpenCode Browser Annotation",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Alt+A to annotate elements and send them to your OpenCode agent. Text and element metadata only.",
-  "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
