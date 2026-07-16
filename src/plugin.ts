@@ -176,19 +176,21 @@ interface SessionInfo {
   updated: number;
 }
 
-export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: PluginInput) => {
+export const BrowserAnnotationPlugin: Plugin = async ({ client }: PluginInput) => {
   const host = envHost();
   const port = envPort();
 
   let activeSessionID: string | null = null;
   let server: Server | null = null;
 
-  // Sessions that showed activity in THIS OpenCode run (created, messaged, or
-  // status/idle events). OpenCode has no open/closed flag, so this approximates
-  // "sessions you're currently working in". Deleted sessions are removed.
+  // Sessions this run has touched (created / messaged / status / idle). Used
+  // only to bias the picker ordering — NOT to filter — so sessions from other
+  // OpenCode processes and other project directories still appear.
   const activeIDs = new Set<string>();
-  const RECENT_FALLBACK_MS = 2 * 60 * 60 * 1000; // 2h
-  const RECENT_FALLBACK_MAX = 8;
+  // The picker shows every recent session across all directories/processes so
+  // one server (whichever wins the port) can target any of them; the shared
+  // OpenCode store makes them all reachable over the single loopback port.
+  const RECENT_MAX = 25;
 
   const log = (level: "info" | "warn" | "error", message: string, extra?: Record<string, unknown>) => {
     void client.app
@@ -198,7 +200,10 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
 
   async function allSessions(): Promise<SessionInfo[]> {
     try {
-      const res = (await client.session.list({ query: { directory } })) as unknown;
+      // No directory filter: list every session in the shared OpenCode store so
+      // the picker spans all projects and all running processes, not just this
+      // plugin instance's own directory.
+      const res = (await client.session.list({})) as unknown;
       const rows: any[] = Array.isArray(res) ? res : Array.isArray((res as any)?.data) ? (res as any).data : [];
       return rows
         .filter((s) => s && typeof s.id === "string" && !s.parentID)
@@ -210,31 +215,30 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: Plu
   }
 
   /**
-   * The picker list: sessions active in this run (newest first). If none have
-   * been observed yet (e.g. right after a restart), fall back to the most
-   * recently updated few so the picker is not empty. All live in this one
-   * process, so any can be targeted over the single port.
+   * The picker list: all sessions, newest first. Sessions this run has actively
+   * touched sort ahead of the rest (recency within each group), so "what you're
+   * working on" floats to the top without hiding sessions owned by other
+   * OpenCode processes or directories.
    */
   async function listSessions(): Promise<SessionInfo[]> {
     const all = await allSessions();
-    const byRecent = [...all].sort((a, b) => b.updated - a.updated);
-    // Prune ids that no longer exist.
+    // Prune tracked ids that no longer exist.
     const existing = new Set(all.map((s) => s.id));
     for (const id of activeIDs) if (!existing.has(id)) activeIDs.delete(id);
 
-    if (activeIDs.size > 0) {
-      return byRecent.filter((s) => activeIDs.has(s.id));
-    }
-    const now = Date.now();
-    const recent = byRecent.filter((s) => now - s.updated < RECENT_FALLBACK_MS).slice(0, RECENT_FALLBACK_MAX);
-    return recent.length ? recent : byRecent.slice(0, RECENT_FALLBACK_MAX);
+    const byRecent = [...all].sort((a, b) => b.updated - a.updated);
+    // Stable partition: touched-this-run first, everything else after; each
+    // group already in recency order.
+    const touched = byRecent.filter((s) => activeIDs.has(s.id));
+    const rest = byRecent.filter((s) => !activeIDs.has(s.id));
+    return [...touched, ...rest].slice(0, RECENT_MAX);
   }
 
   async function injectPrompt(sessionID: string, annotations: Annotation[]): Promise<{ ok: boolean; error?: string }> {
     try {
+      // No directory scoping: target the session by id wherever it lives.
       await client.session.promptAsync({
         path: { id: sessionID },
-        query: { directory },
         body: { parts: [{ type: "text", text: buildPrompt(annotations) }] },
       });
       return { ok: true };

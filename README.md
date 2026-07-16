@@ -177,8 +177,13 @@ The plugin source is `src/plugin.ts`; the extension is plain MV3 in `extension/`
 ## Limits
 
 - Text + element metadata only; no screenshot is sent or seen by the model.
-- The plugin injects into the most recently active session (tracked via the
-  `chat.message` hook). Send a message first so a session is active.
+- The picker lists every recent session across all projects and all running
+  OpenCode processes (the store is shared), with sessions you've touched this
+  run floating to the top. Pick any of them by id; without a `sessionID` the
+  plugin targets the most recently active one.
+- A single server owns the port (default `39517`); the first OpenCode process to
+  bind it serves the extension for every session. Send a message first so a
+  session is active if you rely on the no-`sessionID` fallback.
 
 ## License
 
