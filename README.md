@@ -178,12 +178,20 @@ The plugin source is `src/plugin.ts`; the extension is plain MV3 in `extension/`
 
 - Text + element metadata only; no screenshot is sent or seen by the model.
 - The picker lists every recent session across all projects and all running
-  OpenCode processes (the store is shared), with sessions you've touched this
-  run floating to the top. Pick any of them by id; without a `sessionID` the
-  plugin targets the most recently active one.
-- A single server owns the port (default `39517`); the first OpenCode process to
-  bind it serves the extension for every session. Send a message first so a
-  session is active if you rely on the no-`sessionID` fallback.
+  OpenCode processes, with sessions you've touched this run floating to the top.
+  Pick any by id; without a `sessionID` the plugin targets the most recently
+  active one.
+- Cross-process aggregation: each OpenCode process only serves its own sessions
+  through its in-process API, so every plugin instance also runs a small peer
+  server on an ephemeral port and registers `{pid, port, directory}` under
+  `$XDG_DATA_HOME/opencode/annotation-peers/`. The instance that wins the shared
+  endpoint (default `39517`) fans `/status` and `/annotations` out to all live
+  peers, merges the session lists, and routes each annotation to the process that
+  owns the target session. Dead instances' registry files are reaped
+  automatically (pid liveness + staleness), and the extension's contract
+  (`/status`, `POST /annotations`) is unchanged.
+- Send a message first so a session is active if you rely on the no-`sessionID`
+  fallback.
 
 ## License
 

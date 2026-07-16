@@ -1,4 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 
 /**
@@ -18,6 +21,36 @@ import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 39_517;
+
+/**
+ * Each OpenCode process runs its own in-process API server, and a plugin's
+ * `client` can only see the sessions of ITS OWN process. To list/target sessions
+ * across every running OpenCode (different projects and processes), each plugin
+ * instance also starts a tiny "peer" HTTP server on an ephemeral port and drops
+ * a registry file naming it. Whichever instance wins the shared endpoint port
+ * (DEFAULT_PORT) fans /status and /annotations out to every registered peer and
+ * merges the results, so the browser extension sees one unified session list and
+ * an annotation reaches whichever process owns the target session.
+ */
+function registryDir(): string {
+  const base = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
+  const dir = join(base, "opencode", "annotation-peers");
+  try {
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  } catch {
+    const fallback = join(tmpdir(), "opencode-annotation-peers");
+    mkdirSync(fallback, { recursive: true });
+    return fallback;
+  }
+}
+
+interface PeerRecord {
+  pid: number;
+  port: number;
+  directory: string;
+  updated: number;
+}
 
 interface ElementMeta {
   selector?: string;
@@ -174,22 +207,28 @@ interface SessionInfo {
   id: string;
   title: string;
   updated: number;
+  directory?: string;
 }
 
-export const BrowserAnnotationPlugin: Plugin = async ({ client }: PluginInput) => {
+export const BrowserAnnotationPlugin: Plugin = async ({ client, directory }: PluginInput) => {
   const host = envHost();
   const port = envPort();
 
   let activeSessionID: string | null = null;
-  let server: Server | null = null;
+  let server: Server | null = null; // the shared endpoint (DEFAULT_PORT), if we won it
+  let peerServer: Server | null = null; // this instance's own peer server
+  let peerPort = 0;
+  let peerFile: string | null = null;
+  let registryTimer: ReturnType<typeof setInterval> | null = null;
+
+  const PEER_STALE_MS = 30 * 1000; // a peer file older than this is treated as dead
+  const REGISTRY_REFRESH_MS = 10 * 1000;
 
   // Sessions this run has touched (created / messaged / status / idle). Used
   // only to bias the picker ordering — NOT to filter — so sessions from other
   // OpenCode processes and other project directories still appear.
   const activeIDs = new Set<string>();
-  // The picker shows every recent session across all directories/processes so
-  // one server (whichever wins the port) can target any of them; the shared
-  // OpenCode store makes them all reachable over the single loopback port.
+  // The picker shows every recent session merged across all instances.
   const RECENT_MAX = 25;
 
   const log = (level: "info" | "warn" | "error", message: string, extra?: Record<string, unknown>) => {
@@ -198,45 +237,28 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client }: PluginInput) =
       .catch(() => {});
   };
 
-  async function allSessions(): Promise<SessionInfo[]> {
+  /** Sessions owned by THIS OpenCode process (its own in-process server). */
+  async function localSessions(): Promise<SessionInfo[]> {
     try {
-      // No directory filter: list every session in the shared OpenCode store so
-      // the picker spans all projects and all running processes, not just this
-      // plugin instance's own directory.
       const res = (await client.session.list({})) as unknown;
       const rows: any[] = Array.isArray(res) ? res : Array.isArray((res as any)?.data) ? (res as any).data : [];
       return rows
         .filter((s) => s && typeof s.id === "string" && !s.parentID)
-        .map((s) => ({ id: s.id, title: typeof s.title === "string" ? s.title : s.id, updated: s.time?.updated ?? 0 }));
+        .map((s) => ({
+          id: s.id,
+          title: typeof s.title === "string" ? s.title : s.id,
+          updated: s.time?.updated ?? 0,
+          directory,
+        }));
     } catch (error) {
       log("warn", `session.list failed: ${error instanceof Error ? error.message : "unknown"}`);
       return [];
     }
   }
 
-  /**
-   * The picker list: all sessions, newest first. Sessions this run has actively
-   * touched sort ahead of the rest (recency within each group), so "what you're
-   * working on" floats to the top without hiding sessions owned by other
-   * OpenCode processes or directories.
-   */
-  async function listSessions(): Promise<SessionInfo[]> {
-    const all = await allSessions();
-    // Prune tracked ids that no longer exist.
-    const existing = new Set(all.map((s) => s.id));
-    for (const id of activeIDs) if (!existing.has(id)) activeIDs.delete(id);
-
-    const byRecent = [...all].sort((a, b) => b.updated - a.updated);
-    // Stable partition: touched-this-run first, everything else after; each
-    // group already in recency order.
-    const touched = byRecent.filter((s) => activeIDs.has(s.id));
-    const rest = byRecent.filter((s) => !activeIDs.has(s.id));
-    return [...touched, ...rest].slice(0, RECENT_MAX);
-  }
-
-  async function injectPrompt(sessionID: string, annotations: Annotation[]): Promise<{ ok: boolean; error?: string }> {
+  /** Inject into a session THIS process owns. */
+  async function localInject(sessionID: string, annotations: Annotation[]): Promise<{ ok: boolean; error?: string }> {
     try {
-      // No directory scoping: target the session by id wherever it lives.
       await client.session.promptAsync({
         path: { id: sessionID },
         body: { parts: [{ type: "text", text: buildPrompt(annotations) }] },
@@ -247,18 +269,114 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client }: PluginInput) =
     }
   }
 
+  // ——— Peer registry: discover other OpenCode processes' plugin instances ———
+
+  function readPeers(): PeerRecord[] {
+    const dir = registryDir();
+    const now = Date.now();
+    const out: PeerRecord[] = [];
+    let files: string[] = [];
+    try {
+      files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+    } catch {
+      return out;
+    }
+    for (const f of files) {
+      const full = join(dir, f);
+      try {
+        const rec = JSON.parse(readFileSync(full, "utf8")) as PeerRecord;
+        const alive = typeof rec.pid === "number" && isAlive(rec.pid);
+        const fresh = typeof rec.updated === "number" && now - rec.updated < PEER_STALE_MS;
+        if (rec.port && alive && fresh) out.push(rec);
+        else if (!alive) rmSync(full, { force: true }); // reap dead instance's file
+      } catch {
+        rmSync(full, { force: true });
+      }
+    }
+    return out;
+  }
+
+  function isAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function peerFetch(port: number, path: string, body?: unknown): Promise<any | null> {
+    try {
+      const res = await fetch(`http://${host}:${port}${path}`, {
+        method: body ? "POST" : "GET",
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(4000),
+      });
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Merged picker list: this process's own sessions plus every live peer's,
+   * de-duplicated, touched-this-run first, then newest. Only the endpoint owner
+   * fans out; a plain peer just returns its own via /local.
+   */
+  async function mergedSessions(): Promise<SessionInfo[]> {
+    const mine = await localSessions();
+    const peers = readPeers().filter((p) => p.port !== peerPort);
+    const peerLists = await Promise.all(
+      peers.map(async (p) => {
+        const data = await peerFetch(p.port, "/local");
+        const rows = data && Array.isArray(data.sessions) ? (data.sessions as SessionInfo[]) : [];
+        return rows;
+      }),
+    );
+
+    const byId = new Map<string, SessionInfo>();
+    for (const s of [...mine, ...peerLists.flat()]) {
+      const prev = byId.get(s.id);
+      if (!prev || s.updated > prev.updated) byId.set(s.id, s);
+    }
+    const all = [...byId.values()];
+    const existing = new Set(all.map((s) => s.id));
+    for (const id of activeIDs) if (!existing.has(id)) activeIDs.delete(id);
+
+    const byRecent = all.sort((a, b) => b.updated - a.updated);
+    const touched = byRecent.filter((s) => activeIDs.has(s.id));
+    const rest = byRecent.filter((s) => !activeIDs.has(s.id));
+    return [...touched, ...rest].slice(0, RECENT_MAX);
+  }
+
+  /** Route an inject to whichever instance owns the target session. */
+  async function routeInject(
+    sessionID: string,
+    annotations: Annotation[],
+  ): Promise<{ ok: boolean; error?: string }> {
+    const mineIds = new Set((await localSessions()).map((s) => s.id));
+    if (mineIds.has(sessionID)) return localInject(sessionID, annotations);
+
+    for (const p of readPeers()) {
+      if (p.port === peerPort) continue;
+      const data = await peerFetch(p.port, "/local");
+      const ids: string[] = data && Array.isArray(data.sessions) ? data.sessions.map((s: SessionInfo) => s.id) : [];
+      if (ids.includes(sessionID)) {
+        const r = await peerFetch(p.port, "/inject", { sessionID, annotations });
+        if (r && r.ok) return { ok: true };
+        return { ok: false, error: (r && r.error) || "peer inject failed" };
+      }
+    }
+    // Not found on any peer; last-ditch try locally (id may have just moved).
+    return localInject(sessionID, annotations);
+  }
+
   async function handleSubmit(
     annotations: Annotation[],
     requestedSessionID?: string,
   ): Promise<{ ok: boolean; error?: string; injected: number; sessionID?: string }> {
-    // Prefer the explicitly targeted session; fall back to the last active one.
-    let targetID = requestedSessionID || activeSessionID;
-    if (requestedSessionID) {
-      const sessions = await listSessions();
-      if (!sessions.some((s) => s.id === requestedSessionID)) {
-        return { ok: false, error: "Target session no longer exists.", injected: 0 };
-      }
-    }
+    const targetID = requestedSessionID || activeSessionID;
     if (!targetID) {
       return {
         ok: false,
@@ -266,10 +384,84 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client }: PluginInput) =
         injected: 0,
       };
     }
-    const result = await injectPrompt(targetID, annotations);
+    if (requestedSessionID) {
+      const sessions = await mergedSessions();
+      if (!sessions.some((s) => s.id === requestedSessionID)) {
+        return { ok: false, error: "Target session no longer exists.", injected: 0 };
+      }
+    }
+    const result = await routeInject(targetID, annotations);
     if (!result.ok) return { ok: false, error: result.error, injected: 0, sessionID: targetID };
     return { ok: true, injected: annotations.length, sessionID: targetID };
   }
+
+  // ——— Peer server: this instance's own endpoint for the fan-out owner ———
+
+  function peerHandle(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method === "GET" && req.url === "/local") {
+      void localSessions().then((sessions) => sendJson(res, 200, { ok: true, sessions }));
+      return;
+    }
+    if (req.method === "POST" && req.url === "/inject") {
+      readJsonBody(req)
+        .then(async (parsed) => {
+          const p = (parsed ?? {}) as SubmitPayload;
+          const annotations = Array.isArray(p.annotations) ? p.annotations : [];
+          if (!p.sessionID || annotations.length === 0) {
+            sendJson(res, 400, { ok: false, error: "sessionID and annotations required." });
+            return;
+          }
+          const r = await localInject(p.sessionID, annotations);
+          sendJson(res, r.ok ? 200 : 409, r);
+        })
+        .catch((error: unknown) => sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : "bad request" }));
+      return;
+    }
+    sendJson(res, 404, { ok: false, error: "Not found" });
+  }
+
+  function writePeerFile(): void {
+    if (!peerPort) return;
+    try {
+      const dir = registryDir();
+      peerFile = join(dir, `${process.pid}.json`);
+      const rec: PeerRecord = { pid: process.pid, port: peerPort, directory, updated: Date.now() };
+      writeFileSync(peerFile, JSON.stringify(rec));
+    } catch {
+      /* registry unavailable — this instance simply won't be discoverable */
+    }
+  }
+
+  function startPeerServer(): void {
+    const s = createServer(peerHandle);
+    s.on("error", () => {
+      /* ephemeral port clash is unlikely; if it happens, stay undiscoverable */
+    });
+    s.listen(0, host, () => {
+      const addr = s.address();
+      peerPort = typeof addr === "object" && addr ? addr.port : 0;
+      peerServer = s;
+      writePeerFile();
+      registryTimer = setInterval(writePeerFile, REGISTRY_REFRESH_MS);
+      log("info", `Annotation peer server on http://${host}:${peerPort} (pid ${process.pid})`);
+    });
+  }
+
+  function cleanupPeer(): void {
+    if (registryTimer) clearInterval(registryTimer);
+    registryTimer = null;
+    if (peerFile) {
+      try {
+        rmSync(peerFile, { force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+    peerServer?.close();
+    peerServer = null;
+  }
+
+  // ——— Shared endpoint (the port the extension talks to) ———
 
   function handle(req: IncomingMessage, res: ServerResponse): void {
     if (req.method === "OPTIONS") {
@@ -277,7 +469,7 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client }: PluginInput) =
       return;
     }
     if (req.method === "GET" && req.url === "/status") {
-      void listSessions().then((sessions) => {
+      void mergedSessions().then((sessions) => {
         const active = sessions.find((s) => s.id === activeSessionID);
         sendJson(res, 200, {
           ok: true,
@@ -323,8 +515,8 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client }: PluginInput) =
     const s = createServer(handle);
     server = s; // claim synchronously so a re-entrant start() is a no-op
     s.on("error", (error: NodeJS.ErrnoException) => {
-      // Another instance already owns the port. Drop this half-open server so we
-      // don't leave a listener that resets connections without responding.
+      // Another instance already owns the endpoint. Drop this half-open server;
+      // we still serve our sessions to the owner via the peer server.
       server = null;
       s.close();
       if (error.code !== "EADDRINUSE") {
@@ -336,7 +528,16 @@ export const BrowserAnnotationPlugin: Plugin = async ({ client }: PluginInput) =
     });
   }
 
+  // Always start the peer server (every instance is discoverable); then try to
+  // win the shared endpoint. Whoever wins fans out to all peers.
+  startPeerServer();
   start();
+
+  // Best-effort registry cleanup so a gone instance stops being advertised.
+  // (readPeers also reaps files whose pid is dead, as a backstop.)
+  for (const sig of ["exit", "SIGINT", "SIGTERM"] as const) {
+    process.once(sig, cleanupPeer);
+  }
 
   return {
     "chat.message": async (input) => {
